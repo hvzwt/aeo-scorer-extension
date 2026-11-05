@@ -263,6 +263,19 @@ export function scorePage(snap, site = {}) {
     });
   }
 
+  if (site.rawHtml && site.rawHtml.status >= 400) {
+    add({
+      id: "http-status",
+      category: "access",
+      severity: "critical",
+      title: "Page returns HTTP 200",
+      pass: false,
+      detail: `The server answered HTTP ${site.rawHtml.status}. Crawlers will drop this URL.`,
+      fix: "Return 200 for real pages, 301 for moved ones and 404/410 only for pages that should disappear.",
+      evidence: "Documented",
+      section: "6.2",
+    });
+  }
   if (site.rawHtml && site.rawHtml.status === 200 && typeof site.rawHtml.text === "string") {
     const raw = site.rawHtml.text.toLowerCase().replace(/<[^>]+>/g, " ").replace(/&[a-z#0-9]+;/g, " ").replace(/\s+/g, " ");
     const h1 = snap.headings.find((h) => h.level === 1);
@@ -374,6 +387,85 @@ export function scorePage(snap, site = {}) {
     evidence: "Practice",
     section: "5.2",
   });
+  add({
+    id: "meta-viewport",
+    category: "head",
+    severity: "major",
+    title: "Mobile viewport meta tag",
+    pass: !!snap.viewport,
+    detail: snap.viewport ? `viewport: "${snap.viewport}"` : "No <meta name=\"viewport\">. Mobile-first indexing renders the page on a phone.",
+    fix: 'Add <meta name="viewport" content="width=device-width, initial-scale=1">.',
+    evidence: "Documented",
+    section: "5.2",
+  });
+  add({
+    id: "meta-charset",
+    category: "head",
+    severity: "minor",
+    title: "Character encoding declared",
+    pass: snap.charset !== false,
+    detail: snap.charset === false ? "No <meta charset>." : "Charset declared.",
+    fix: 'Add <meta charset="utf-8"> as the first element in <head>.',
+    evidence: "Practice",
+    section: "5.2",
+  });
+  if ((snap.canonicalCount || 0) > 1) {
+    add({
+      id: "canonical-duplicate",
+      category: "head",
+      severity: "major",
+      title: "Only one canonical tag",
+      pass: false,
+      detail: `${snap.canonicalCount} <link rel="canonical"> tags. Engines may ignore all of them.`,
+      fix: "Keep exactly one canonical tag per page.",
+      evidence: "Documented",
+      section: "5.3",
+    });
+  }
+  if (canonicalOk) {
+    let self = true;
+    try {
+      const a = new URL(snap.canonical);
+      const b = new URL(snap.url);
+      self = a.host.replace(/^www\./, "") === b.host.replace(/^www\./, "") && a.pathname.replace(/\/$/, "") === b.pathname.replace(/\/$/, "");
+    } catch {}
+    if (!self) {
+      add({
+        id: "canonical-elsewhere",
+        category: "head",
+        severity: "info",
+        title: "Canonical points to another URL",
+        pass: true,
+        detail: `This page says the main version is ${snap.canonical}. Engines will usually cite that URL instead.`,
+        fix: "Fine for duplicates. If this page should be cited itself, make the canonical self-referencing.",
+        section: "5.3",
+      });
+    }
+  }
+  add({
+    id: "og-image",
+    category: "head",
+    severity: "minor",
+    title: "Social preview image (og:image)",
+    pass: !!snap.ogImage,
+    detail: snap.ogImage ? snap.ogImage : "No og:image.",
+    fix: 'Add <meta property="og:image" content="https://…/preview.png"> (1200×630). Many assistants show it next to citations.',
+    evidence: "Practice",
+    section: "5.2",
+  });
+  if (snap.metaDescription && snap.title && snap.metaDescription.trim().toLowerCase() === snap.title.trim().toLowerCase()) {
+    add({
+      id: "description-equals-title",
+      category: "head",
+      severity: "minor",
+      title: "Description is different from the title",
+      pass: false,
+      detail: "The meta description repeats the title.",
+      fix: "Make the description a one-sentence answer, not a copy of the title.",
+      evidence: "Documented",
+      section: "5.3",
+    });
+  }
   if (snap.hreflang?.length) {
     add({
       id: "hreflang-xdefault",
@@ -657,6 +749,186 @@ export function scorePage(snap, site = {}) {
     });
   }
 
+  // deeper schema checks
+  const missingContext = ldBlocks.filter((b) => b.ok && !JSON.stringify(b.data).includes("schema.org"));
+  if (missingContext.length) {
+    add({
+      id: "jsonld-context",
+      category: "schema",
+      severity: "major",
+      title: 'JSON-LD declares "@context": "https://schema.org"',
+      pass: false,
+      detail: `${missingContext.length} JSON-LD block(s) have no schema.org @context, so parsers cannot read them.`,
+      fix: 'Start every block with "@context": "https://schema.org".',
+      evidence: "Documented",
+      section: "6.3",
+    });
+  }
+  const org = ldNodes.find((n) => typesOf(n).some((t) => /Organization|Corporation|LocalBusiness/.test(t)) && (n.name || n.url));
+  if (org) {
+    const miss = ["name", "url", "logo"].filter((k) => !org[k]);
+    add({
+      id: "jsonld-organization-fields",
+      category: "schema",
+      severity: "minor",
+      title: "Organization has name, url, logo and sameAs",
+      pass: miss.length === 0 && !!org.sameAs,
+      detail: miss.length || !org.sameAs ? `Missing: ${[...miss, ...(org.sameAs ? [] : ["sameAs"])].join(", ")}.` : "Complete.",
+      fix: "sameAs links (LinkedIn, GitHub, Wikipedia, Crunchbase) help engines tie mentions elsewhere to your brand.",
+      evidence: "Documented",
+      section: "6.3",
+    });
+  }
+  if (article) {
+    add({
+      id: "jsonld-article-image",
+      category: "schema",
+      severity: "minor",
+      title: "Article schema has an image",
+      pass: !!article.image,
+      detail: article.image ? "Image set." : "No image property.",
+      fix: "Add an image (URL of a representative image at least 1200px wide).",
+      evidence: "Documented",
+      section: "6.3",
+    });
+    const visibleDates = (snap.times || []).map((t) => String(t.datetime || "").slice(0, 10));
+    const dm = String(article.dateModified || "").slice(0, 10);
+    if (dm && visibleDates.length) {
+      add({
+        id: "jsonld-date-matches",
+        category: "schema",
+        severity: "minor",
+        title: "dateModified matches the visible date",
+        pass: visibleDates.includes(dm) || visibleDates.includes(String(article.datePublished || "").slice(0, 10)),
+        detail: `Schema dateModified ${dm}; visible dates ${visibleDates.join(", ")}.`,
+        fix: "Fill both from the same field so they never drift apart.",
+        evidence: "Practice",
+        section: "5.3",
+      });
+    }
+  }
+  const crumbs = ldNodes.find((n) => typesOf(n).includes("BreadcrumbList"));
+  if (crumbs) {
+    const items = Array.isArray(crumbs.itemListElement) ? crumbs.itemListElement : [];
+    const bad = items.some((it, i) => Number(it.position) !== i + 1 || !(it.name || it.item?.name)) || items.slice(0, -1).some((it) => !it.item);
+    add({
+      id: "jsonld-breadcrumb-valid",
+      category: "schema",
+      severity: "minor",
+      title: "BreadcrumbList items are complete",
+      pass: items.length > 0 && !bad,
+      detail: items.length ? `${items.length} items${bad ? "; positions must run 1, 2, 3… and every item except the last needs name and item URL" : ""}.` : "itemListElement is empty.",
+      fix: "Give each ListItem a position, a name and an item URL (the last one may omit item).",
+      evidence: "Documented",
+      section: "6.3",
+    });
+  }
+  const product = ldNodes.find((n) => typesOf(n).includes("Product"));
+  if (product) {
+    const offer = Array.isArray(product.offers) ? product.offers[0] : product.offers;
+    const miss = [!product.name && "name", !offer && "offers", offer && !offer.price && !offer.lowPrice && "offers.price", offer && !offer.priceCurrency && "offers.priceCurrency", offer && !offer.availability && "offers.availability"].filter(Boolean);
+    add({
+      id: "jsonld-product-fields",
+      category: "schema",
+      severity: "major",
+      title: "Product schema has name, price, currency and availability",
+      pass: miss.length === 0,
+      detail: miss.length ? `Missing: ${miss.join(", ")}.` : "Complete.",
+      fix: "Add an Offer with price, priceCurrency and availability that match the page.",
+      evidence: "Documented",
+      section: "6.3",
+    });
+    const rating = product.aggregateRating;
+    if (rating?.ratingValue) {
+      const shown = (snap.text || "").includes(String(rating.ratingValue));
+      add({
+        id: "jsonld-rating-visible",
+        category: "schema",
+        severity: "major",
+        title: "Rating in schema is shown on the page",
+        pass: shown,
+        detail: shown ? `Rating ${rating.ratingValue} is visible.` : `Schema says rating ${rating.ratingValue}, but that value is not visible on the page.`,
+        fix: "Only include ratings you actually display (guide §6.3).",
+        evidence: "Documented",
+        section: "6.3",
+      });
+    }
+  }
+  const dupTypes = [...types].filter((t) => ARTICLE_TYPES.includes(t) || t === "Product" || t === "FAQPage").filter((t) => ldNodes.filter((n) => typesOf(n).includes(t)).length > 1);
+  if (dupTypes.length) {
+    add({
+      id: "jsonld-duplicates",
+      category: "schema",
+      severity: "minor",
+      title: "No duplicate main entities",
+      pass: false,
+      detail: `More than one ${dupTypes.join(", ")} node. Often a theme and a plugin both output schema.`,
+      fix: "Keep one main entity per page; remove the duplicate source.",
+      evidence: "Practice",
+      section: "6.3",
+    });
+  }
+
+  // FAQ
+  const faqNode = ldNodes.find((n) => typesOf(n).includes("FAQPage"));
+  const visibleQs = snap.faq?.questions || [];
+  const hasVisibleFaq = !!snap.faq?.heading || visibleQs.length >= 3;
+  if (faqNode) {
+    const qs = (Array.isArray(faqNode.mainEntity) ? faqNode.mainEntity : faqNode.mainEntity ? [faqNode.mainEntity] : []).filter(Boolean);
+    const incomplete = qs.filter((q) => !q.name || !(q.acceptedAnswer?.text));
+    add({
+      id: "faq-schema-complete",
+      category: "schema",
+      severity: "major",
+      title: "FAQPage questions have name and acceptedAnswer",
+      pass: qs.length > 0 && incomplete.length === 0,
+      detail: qs.length ? `${qs.length} questions${incomplete.length ? `, ${incomplete.length} missing a name or acceptedAnswer.text` : ""}.` : "FAQPage has no mainEntity questions.",
+      fix: 'Each item: {"@type":"Question","name":"…","acceptedAnswer":{"@type":"Answer","text":"…"}}.',
+      evidence: "Documented",
+      section: "6.3",
+    });
+    const pageText = (snap.text || "").toLowerCase();
+    const hidden = qs.filter((q) => q.name && !pageText.includes(String(q.name).toLowerCase().slice(0, 50)));
+    add({
+      id: "faq-schema-visible",
+      category: "schema",
+      severity: "major",
+      title: "FAQ schema matches visible questions",
+      pass: hidden.length === 0,
+      detail: hidden.length ? `${hidden.length} of ${qs.length} questions in the schema are not visible on the page, e.g. "${hidden[0].name}".` : "Every schema question appears on the page.",
+      fix: "Structured data must match visible content. Show these questions on the page or remove them from the markup.",
+      evidence: "Documented",
+      section: "6.3",
+    });
+  } else if (hasVisibleFaq) {
+    add({
+      id: "faq-no-schema",
+      category: "schema",
+      severity: "info",
+      title: "Visible FAQ without FAQPage markup",
+      pass: true,
+      detail: `Found an FAQ${snap.faq?.heading ? ` ("${snap.faq.heading}")` : ""} with ${visibleQs.length} questions. FAQ rich results were retired on 7 May 2026, so markup is optional.`,
+      fix: "Optional: FAQPage markup still describes Q&A to other parsers. Make sure each answer starts with a direct sentence.",
+      selector: snap.faq?.headingSelector,
+      section: "6.3",
+    });
+  }
+  if (hasVisibleFaq) {
+    const asQuestions = visibleQs.length;
+    add({
+      id: "faq-questions-phrased",
+      category: "answers",
+      severity: "minor",
+      title: "FAQ items are written as real questions",
+      pass: asQuestions >= 2,
+      detail: `${asQuestions} FAQ items end with a question mark.`,
+      fix: "Write each FAQ item the way a user would ask it, then answer it in the first sentence.",
+      selector: snap.faq?.headingSelector,
+      evidence: "Practice",
+      section: "5.1",
+    });
+  }
+
   // ---------------- trust & evidence ----------------
   const personAuthor = ldNodes.some((n) => typesOf(n).includes("Person"));
   add({
@@ -786,4 +1058,105 @@ export function diffRuns(prevChecks, nextChecks, marked = {}) {
     else if (marked[id]) stillFailing.push(now);
   }
   return { verified, stillFailing };
+}
+
+// ---------------------------------------------------------------------------
+// areas used for filtering and reports
+
+export const AREAS = {
+  aeo: "AEO & GEO",
+  schema: "Schema & tags",
+  a11y: "Accessibility",
+};
+
+export function areaOf(category) {
+  if (category === "schema" || category === "head") return "schema";
+  if (category === "a11y") return "a11y";
+  return "aeo";
+}
+
+// ---------------------------------------------------------------------------
+// Accessibility (axe-core results → issues grouped by who they affect)
+
+export const A11Y_GROUPS = {
+  "screen-reader": "Blind & screen-reader users",
+  vision: "Low vision & colour blindness",
+  keyboard: "Keyboard & motor",
+  hearing: "Deaf & hard of hearing",
+  cognitive: "Cognitive & reading",
+};
+
+const A11Y_GROUP_BY_CAT = {
+  "cat.text-alternatives": "screen-reader",
+  "cat.aria": "screen-reader",
+  "cat.name-role-value": "screen-reader",
+  "cat.forms": "screen-reader",
+  "cat.tables": "screen-reader",
+  "cat.parsing": "screen-reader",
+  "cat.semantics": "cognitive",
+  "cat.structure": "cognitive",
+  "cat.language": "cognitive",
+  "cat.color": "vision",
+  "cat.sensory-and-visual-cues": "vision",
+  "cat.keyboard": "keyboard",
+  "cat.time-and-media": "hearing",
+};
+const A11Y_GROUP_BY_RULE = { "meta-viewport": "vision", "meta-viewport-large": "vision", "link-name": "screen-reader", "button-name": "screen-reader", "image-alt": "screen-reader", "video-caption": "hearing", "audio-caption": "hearing", "bypass": "keyboard", "region": "screen-reader", "landmark-one-main": "screen-reader", "heading-order": "cognitive", "page-has-heading-one": "cognitive", "html-has-lang": "cognitive", "document-title": "cognitive" };
+
+const IMPACT_SEVERITY = { critical: "critical", serious: "major", moderate: "minor", minor: "minor" };
+const IMPACT_WEIGHT = { critical: 10, serious: 7, moderate: 3, minor: 1 };
+
+function wcagRefs(tags) {
+  return (tags || [])
+    .map((t) => t.match(/^wcag(\d)(\d)(\d+)$/))
+    .filter(Boolean)
+    .map((m) => `${m[1]}.${m[2]}.${m[3]}`);
+}
+
+function wcagLevel(tags) {
+  if ((tags || []).some((t) => /^wcag2(1|2)?aa$/.test(t))) return "AA";
+  if ((tags || []).some((t) => /^wcag2(1|2)?a$/.test(t))) return "A";
+  return "Best practice";
+}
+
+export function a11yGroupOf(rule) {
+  if (A11Y_GROUP_BY_RULE[rule.id]) return A11Y_GROUP_BY_RULE[rule.id];
+  const cat = (rule.tags || []).find((t) => t.startsWith("cat."));
+  return A11Y_GROUP_BY_CAT[cat] || "screen-reader";
+}
+
+/** axe results → { score, groups, checks } with checks shaped like the AEO checks. */
+export function scoreAccessibility(axe) {
+  if (!axe?.ok) return null;
+  const checks = axe.violations.map((v) => {
+    const refs = wcagRefs(v.tags);
+    const group = a11yGroupOf(v);
+    return {
+      id: `a11y:${v.id}`,
+      category: "a11y",
+      group,
+      severity: IMPACT_SEVERITY[v.impact] || "minor",
+      impact: v.impact,
+      title: v.help,
+      pass: false,
+      detail: `${v.nodeCount} element${v.nodeCount === 1 ? "" : "s"}. ${v.description}`,
+      fix: v.nodes[0]?.summary || v.description,
+      wcag: refs,
+      level: wcagLevel(v.tags),
+      helpUrl: v.helpUrl,
+      evidence: refs.length ? `WCAG ${refs.join(", ")} (${wcagLevel(v.tags)})` : "Best practice",
+      selector: v.nodes[0]?.selector || null,
+      items: v.nodes.map((n) => ({ selector: n.selector, label: v.id })),
+      nodeCount: v.nodeCount,
+    };
+  });
+  const passedW = axe.passes.reduce((s, r) => s + (IMPACT_WEIGHT[r.impact] || 3), 0);
+  const failedW = axe.violations.reduce((s, r) => s + (IMPACT_WEIGHT[r.impact] || 3), 0);
+  const score = passedW + failedW ? Math.round((passedW / (passedW + failedW)) * 100) : 100;
+  const groups = {};
+  for (const [key, label] of Object.entries(A11Y_GROUPS)) {
+    const cs = checks.filter((c) => c.group === key);
+    groups[key] = { label, count: cs.length, critical: cs.filter((c) => c.severity === "critical").length };
+  }
+  return { score, grade: grade(score), groups, checks, passedRules: axe.passes.length };
 }

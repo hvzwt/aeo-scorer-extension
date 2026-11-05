@@ -1,10 +1,10 @@
 # AEO Scorer (Chrome extension)
 
-A Chrome side panel that scores the current page for Answer Engine Optimization (AEO) and Generative Engine Optimization (GEO), highlights the problems on the page, and re-checks them after you fix them. The rules follow "AEO & GEO: A Developer's Implementation Guide" (Nov 2026).
+A Chrome side panel that scores a page or a whole site for Answer Engine Optimization (AEO), Generative Engine Optimization (GEO), schema and accessibility. It highlights the problems on the page, re-checks them after you fix them, and exports reports to share with your team. The rules follow "AEO & GEO: A Developer's Implementation Guide" (Nov 2026).
 
 ## Install (load unpacked)
 
-1. Unzip `aeo-scorer-0.1.0.zip` (or run `npm install && npm run build` and use `dist/`).
+1. Unzip `aeo-scorer-0.2.0.zip` (or run `npm install && npm run build` and use `dist/`).
 2. Open `chrome://extensions`, turn on **Developer mode**, click **Load unpacked**, and pick the unzipped folder.
 3. Pin the extension and click its icon. The panel opens on the right and stays open while you reload or navigate.
 
@@ -13,6 +13,12 @@ A Chrome side panel that scores the current page for Answer Engine Optimization 
 - **Score (free, instant, no AI).** The panel reads a snapshot of the page and runs about 35 checks in six weighted groups: crawler access 25% (meta robots, robots.txt for Googlebot, Bingbot, OAI-SearchBot, PerplexityBot and Claude-SearchBot, server-rendered content), page structure 20%, answer-first content 20%, head tags 15%, structured data 10%, trust and evidence 10%. Each issue cites the guide section and how solid the evidence is (Documented, Practice or Study).
 - **Fix loop.** Click **Show on page** to scroll to and outline an element, or turn on **Highlight issues on page**. After you change the page, click **Mark fixed**, then reload the tab. The panel re-scans automatically and tells you which issues are verified fixed and which are still failing.
 - **Claude review (optional).** Add your Anthropic API key in Settings and click **Ask Claude**. Claude judges what rules cannot, such as whether the opening actually answers the main question, and returns findings with paste-ready text and a suggested JSON-LD block. Findings appear in the same list with a Claude chip.
+
+- **Start screen.** Close a report (✕) to scan the current tab, open and scan any URL, crawl a site, or reopen a recent report.
+- **Site crawl.** Visits up to 10, 25, 50 or 100 pages one at a time in a background tab, so JavaScript-rendered content counts. Seeds from the sitemap, follows internal links, respects robots.txt, and skips login, cart, admin and non-HTML URLs. The site report shows average scores, issues grouped across pages (with how many pages each affects) and every page's score; click a page for its full report.
+- **Schema, FAQ and tag checks.** JSON-LD @context, Organization, Article, BreadcrumbList, Product and rating, duplicate entities, dates matching the visible date, FAQPage completeness and whether its questions are visible, viewport, charset, duplicate canonicals, og:image and HTTP status.
+- **Accessibility.** Runs axe-core (WCAG 2.0 to 2.2, A and AA, plus best practices) in the page. Issues are grouped by who they affect (screen-reader users, low vision, keyboard and motor, deaf and hard of hearing, cognitive) and tagged with the WCAG criterion. The accessibility score is separate from the AEO score. Automated checks catch only part of accessibility problems, so still test with a keyboard and a screen reader.
+- **Reports.** The download button exports an HTML report (opens in any browser, prints to PDF) or a CSV with one row per issue, for the page or the whole site.
 
 ## Claude details
 
@@ -36,7 +42,13 @@ Serve the test pages first: `cd test/site && python3 -m http.server 8765`. The t
 
 - `src/manifest.json` – Manifest V3, side panel, permissions
 - `src/background.js` – opens the side panel from the toolbar icon
-- `src/content.js` – page snapshot and highlight overlay (injected on demand)
-- `src/rules.js` – the scoring rules (pure functions)
+- `src/content.js` – page snapshot, axe-core runner and highlight overlay (injected on demand)
+- `src/rules.js` – the scoring rules and accessibility grouping (pure functions)
+- `src/crawler.js` – the site crawler
+- `src/report.js` – HTML and CSV reports
 - `src/claude.js` – the Claude prompt, output schema and API call
 - `src/sidepanel.*` – the panel UI, re-scan on reload, saved fix state per URL
+
+## Third-party code
+
+`axe-core` 4.14 (Deque Systems, MPL-2.0) is bundled unmodified as `axe.min.js`.

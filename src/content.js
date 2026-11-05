@@ -172,6 +172,30 @@
     }));
 
     const allWords = words(bodyText.toLowerCase());
+
+    // Same-site links, for the site crawler.
+    const internalLinks = [];
+    const seen = new Set();
+    for (const a of anchors) {
+      try {
+        const u = new URL(a.href, location.href);
+        if (!/^https?:$/.test(u.protocol) || u.hostname.replace(/^www\./, "") !== host) continue;
+        u.hash = "";
+        const k = u.href;
+        if (!seen.has(k)) {
+          seen.add(k);
+          internalLinks.push(k);
+        }
+      } catch {}
+      if (internalLinks.length >= 500) break;
+    }
+
+    // Visible FAQ: a heading that says FAQ, or question headings / <summary> elements.
+    const faqHeading = Array.from(document.querySelectorAll("h2, h3")).find((h) => /\bfaq|frequently asked|common questions/i.test(h.innerText || ""));
+    const questionNodes = Array.from(document.querySelectorAll("summary, h3, h4, dt, button[aria-expanded]"))
+      .filter((n) => isVisible(n) || n.tagName === "SUMMARY")
+      .map((n) => clean(n.innerText || n.textContent))
+      .filter((t) => t.length > 8 && t.length < 200 && /\?$/.test(t));
     const text = bodyText.slice(0, 60000);
 
     return {
@@ -215,6 +239,13 @@
       text,
       textTruncated: bodyText.length > text.length,
       faqLike: Array.from(document.querySelectorAll("details > summary")).length,
+      faq: { heading: faqHeading ? clean(faqHeading.innerText) : null, headingSelector: faqHeading ? cssPath(faqHeading) : null, questions: questionNodes.slice(0, 50) },
+      viewport: meta('meta[name="viewport"]'),
+      charset: !!document.querySelector("meta[charset]") || /charset/i.test(meta('meta[http-equiv="Content-Type" i]') || ""),
+      canonicalCount: document.querySelectorAll('link[rel="canonical"]').length,
+      ogImage: meta('meta[property="og:image"]'),
+      twitterCard: meta('meta[name="twitter:card"]'),
+      internalLinks,
     };
   }
 
@@ -274,7 +305,30 @@
     return { found };
   }
 
+  async function runAxe() {
+    if (!window.axe) return { ok: false, error: "Accessibility engine not loaded." };
+    const res = await window.axe.run(document, {
+      runOnly: { type: "tag", values: ["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22aa", "best-practice"] },
+      resultTypes: ["violations"],
+      elementRef: false,
+    });
+    const slim = (r) => ({ id: r.id, impact: r.impact, tags: r.tags, help: r.help, description: r.description, helpUrl: r.helpUrl });
+    return {
+      ok: true,
+      violations: res.violations.map((r) => ({
+        ...slim(r),
+        nodes: r.nodes.slice(0, 25).map((n) => ({ selector: Array.isArray(n.target?.[0]) ? n.target[0].join(" ") : String(n.target?.[0] || ""), html: (n.html || "").slice(0, 200), summary: (n.failureSummary || "").slice(0, 300) })),
+        nodeCount: r.nodes.length,
+      })),
+      passes: res.passes.map((r) => ({ id: r.id, impact: r.impact, tags: r.tags })),
+    };
+  }
+
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+    if (msg?.type === "aeo:axe") {
+      runAxe().then(sendResponse, (e) => sendResponse({ ok: false, error: String(e?.message || e) }));
+      return true;
+    }
     try {
       if (msg?.type === "aeo:snapshot") sendResponse({ ok: true, snapshot: snapshot() });
       else if (msg?.type === "aeo:highlight") sendResponse({ ok: true, ...highlight(msg.items || [], msg.focus) });

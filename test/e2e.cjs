@@ -118,6 +118,62 @@ function sse() {
     await bad.panel.waitForTimeout(600);
     await bad.page.screenshot({ path: path.join(OUT, "page-bad-ai-focus.png") });
     await bad.panel.screenshot({ path: path.join(OUT, "panel-bad-claude.png"), fullPage: true });
+
+    // accessibility + filters
+    const p = bad.panel;
+    console.log("a11y chip:", (await p.textContent("#a11y-chip")).replace(/\s+/g, " "));
+    await p.click('#filters button[data-area="a11y"]');
+    console.log("a11y issues:", await p.$$eval("#issues .issue .issue-title", (n) => n.map((x) => x.textContent)));
+    await p.click('#filters button[data-area="schema"]');
+    console.log("schema & tag issues:", await p.$$eval("#issues .issue .issue-title", (n) => n.map((x) => x.textContent)));
+    await p.click('#filters button[data-area="all"]');
+
+    // page downloads
+    const grab = async (fmt, name) => {
+      await p.click("#btn-download");
+      const [dl] = await Promise.all([p.waitForEvent("download"), p.click(`#download-menu button[data-format="${fmt}"]`)]);
+      const file = path.join(OUT, name);
+      await dl.saveAs(file);
+      const txt = fs.readFileSync(file, "utf8");
+      console.log(`download ${dl.suggestedFilename()}: ${txt.length} chars`);
+      return txt;
+    };
+    const html = await grab("html", "page-report.html");
+    console.log("  report has accessibility section:", html.includes("Accessibility ("), "claude section:", html.includes("Claude review"));
+    const csv = await grab("csv", "page-issues.csv");
+    console.log("  csv rows:", csv.trim().split(/\r\n/).length - 1, "| header:", csv.split(/\r\n/)[0].slice(1));
+
+    // close -> home
+    await p.click("#btn-close");
+    await p.waitForSelector("#view-home:not([hidden])");
+    console.log("home shown, recent reports:", await p.$$eval("#home-recent button", (n) => n.length));
+    await p.screenshot({ path: path.join(OUT, "panel-home.png"), fullPage: true });
+
+    // crawl the site
+    await p.selectOption("#crawl-max", "10");
+    await p.fill("#home-url", "http://localhost:8765/");
+    await p.click("#btn-crawl-url");
+    await p.waitForSelector("#crawl-progress:not([hidden])");
+    await p.screenshot({ path: path.join(OUT, "panel-crawling.png") });
+    await p.waitForSelector("#site-summary:not([hidden])", { timeout: 120000 });
+    console.log("site meta:", await p.textContent("#site-meta"));
+    console.log("site scores:", await p.textContent("#site-score"), await p.textContent("#site-a11y"), await p.textContent("#site-issues"));
+    console.log("site pages:", await p.$$eval("#site-pages button", (n) => n.map((b) => b.innerText.replace(/\s+/g, " "))));
+    console.log("site issues (top 12):", await p.$$eval("#site-issue-list .issue", (n) => n.slice(0, 12).map((x) => x.querySelector(".issue-title").textContent + " | " + x.querySelector(".issue-detail").textContent.slice(0, 40))));
+    await p.screenshot({ path: path.join(OUT, "panel-site.png"), fullPage: true });
+    const shtml = await grab("html", "site-report.html");
+    const scsv = await grab("csv", "site-issues.csv");
+    console.log("  site csv rows:", scsv.trim().split(/\r\n/).length - 1);
+
+    // open a page from the site report, then go back
+    await p.locator("#site-pages button").first().click();
+    await p.waitForSelector("#view-main:not([hidden]) #summary:not([hidden])");
+    console.log("stored page view:", await p.textContent("#page-title"), "score", await p.textContent("#score"), "back visible:", await p.isVisible("#btn-back-site"));
+    await p.screenshot({ path: path.join(OUT, "panel-site-page.png"), fullPage: true });
+    await p.click("#btn-back-site");
+    await p.waitForSelector("#view-site:not([hidden])");
+    const tabsLeft = await sw.evaluate(async () => (await chrome.tabs.query({})).map((t) => t.url));
+    console.log("tabs after crawl:", tabsLeft);
   } finally {
     fs.writeFileSync(badPath, badOriginal);
     await ctx.close();

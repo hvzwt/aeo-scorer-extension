@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "AEO Scorer",
   "short_name": "AEO Scorer",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Scores the current page for Answer Engine and Generative Engine Optimization, highlights issues, and re-checks them after you fix them.",
   "minimum_chrome_version": "116",
   "icons": {
@@ -24,6 +24,6 @@
   "background": {
     "service_worker": "background.js"
   },
-  "permissions": ["sidePanel", "scripting", "storage", "tabs"],
+  "permissions": ["sidePanel", "scripting", "storage", "unlimitedStorage", "tabs"],
   "host_permissions": ["<all_urls>"]
 }

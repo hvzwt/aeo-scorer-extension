@@ -1,6 +1,6 @@
 {
   "name": "aeo-scorer-extension",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Chrome side panel that scores pages for AEO/GEO",
   "scripts": {
     "build": "node build.mjs",
@@ -11,7 +11,9 @@
   "license": "ISC",
   "dependencies": {
     "@anthropic-ai/sdk": "^1.5.0",
+    "axe-core": "^4.14.0",
     "esbuild": "^0.28.2"
   },
-  "private": true
+  "private": true,
+  "type": "module"
 }

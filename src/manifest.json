@@ -2,8 +2,8 @@
   "manifest_version": 3,
   "name": "AEO Scorer",
   "short_name": "AEO Scorer",
-  "version": "0.4.0",
-  "description": "Scores the current page for Answer Engine and Generative Engine Optimization, highlights issues, and re-checks them after you fix them.",
+  "version": "0.5.0",
+  "description": "Scores the current page for Answer Engine and Generative Engine Optimization, highlights issues, re-checks them after you fix them, and tracks your brand in AI answers.",
   "minimum_chrome_version": "116",
   "icons": {
     "16": "icons/icon16.png",
@@ -22,8 +22,9 @@
     "default_path": "sidepanel.html"
   },
   "background": {
-    "service_worker": "background.js"
+    "service_worker": "background.js",
+    "type": "module"
   },
-  "permissions": ["sidePanel", "scripting", "storage", "unlimitedStorage", "tabs"],
+  "permissions": ["sidePanel", "scripting", "storage", "unlimitedStorage", "tabs", "alarms"],
   "host_permissions": ["<all_urls>"]
 }

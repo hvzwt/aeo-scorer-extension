@@ -31,6 +31,8 @@
       <button role="menuitem" data-format="csv">Issues (CSV, for Sheets or Excel)</button>
       <button role="menuitem" data-format="brief">AI brief (Markdown for Claude Code / Cursor)</button>
       <button role="menuitem" data-format="brief-ai" id="menu-brief-ai">AI brief with code fixes written by Claude</button>
+      <button role="menuitem" data-format="vis-html" class="vis-only">Visibility report (HTML)</button>
+      <button role="menuitem" data-format="vis-csv" class="vis-only">Prompt results (CSV)</button>
     </div>
   </header>
 
@@ -62,6 +64,11 @@
       </select>
     </label>
     <p class="muted small">The crawler opens pages one by one in a background tab, so it sees each page the way a browser renders it, and follows your sitemap and internal links. It respects robots.txt and skips login, cart and admin pages.</p>
+    <div class="card vis-entry">
+      <div><strong>AI visibility tracker</strong></div>
+      <p class="muted small">See whether AI answers mention your brand and cite your site for the questions your buyers ask, compared with your competitors.</p>
+      <button id="btn-open-vis">Open tracker</button>
+    </div>
     <h3 class="sub">Recent reports</h3>
     <div id="home-recent" class="recent"></div>
   </main>
@@ -156,6 +163,68 @@
     </section>
   </main>
 
+  <!-- AI visibility tracker -->
+  <main id="view-vis" hidden>
+    <section id="vis-capture" class="card capture" hidden>
+      <div><strong id="cap-title">Capture this answer</strong></div>
+      <p class="muted small" id="cap-sub">Saves the AI answer in this tab and measures your brand in it. Select part of the page first to capture only that.</p>
+      <label class="field"><span>Prompt</span><select id="cap-prompt"></select></label>
+      <div class="row"><button id="btn-capture" class="primary">Capture answer</button></div>
+      <p id="cap-status" class="small" role="status"></p>
+    </section>
+
+    <section id="vis-setup" hidden>
+      <h2>Track your brand in AI answers</h2>
+      <p class="muted small">Claude answers each prompt with live web search, the way AI assistants do, and the tracker records whether your brand is mentioned, where it ranks, whether your site is cited, and which competitors show up instead. You can also capture real answers from ChatGPT, Perplexity, Gemini, Copilot and Google AI Mode.</p>
+      <label class="field"><span>Brand name</span><input id="vis-brand" placeholder="Acme Analytics" spellcheck="false"></label>
+      <label class="field"><span>Other names <span class="muted small">(comma separated, optional)</span></span><input id="vis-aliases" placeholder="Acme, AcmeHQ" spellcheck="false"></label>
+      <label class="field"><span>Your domain</span><input id="vis-domain" placeholder="acme.com" spellcheck="false"></label>
+      <label class="field"><span>Competitors <span class="muted small">(one per line: Name, domain)</span></span><textarea id="vis-competitors" rows="4" placeholder="Globex, globex.com&#10;Initech, initech.io" spellcheck="false"></textarea></label>
+      <label class="field"><span>Prompts <span class="muted small">(one per line, up to 50)</span></span><textarea id="vis-prompts" rows="8" placeholder="What is the best analytics tool for small online stores?"></textarea></label>
+      <div class="row"><button id="btn-vis-suggest">Suggest prompts with Claude</button></div>
+      <label class="field inline"><span>Re-run automatically</span>
+        <select id="vis-schedule"><option value="off">Off</option><option value="daily">Daily</option><option value="weekly">Weekly</option></select>
+      </label>
+      <p class="muted small">Scheduled runs happen in the background while Chrome is open and use your API key. A run costs about $0.02–0.05 per prompt with the default model (Claude tokens plus $0.01 per web search).</p>
+      <div class="row">
+        <button id="btn-vis-save" class="primary">Save</button>
+        <button id="btn-vis-cancel">Cancel</button>
+      </div>
+      <p id="vis-setup-status" class="small" role="status"></p>
+    </section>
+
+    <section id="vis-dash" hidden>
+      <div class="row between">
+        <div><div class="host" id="vis-name"></div><div class="muted small" id="vis-meta"></div></div>
+        <div class="row tight"><button id="btn-vis-edit" class="small-btn">Edit</button><button id="btn-vis-run" class="primary small-btn">Run now</button></div>
+      </div>
+      <section id="vis-progress" class="card" hidden>
+        <div class="row between"><strong id="vis-status">Running…</strong><button id="btn-vis-stop" class="small-btn">Stop</button></div>
+        <div class="bar big"><span id="vis-bar"></span></div>
+        <div id="vis-now" class="muted small ellipsis"></div>
+      </section>
+      <p id="vis-error" class="err small" hidden></p>
+      <div id="vis-engines" class="filters" role="group" aria-label="Filter by AI engine"></div>
+      <div id="vis-empty" class="empty" hidden></div>
+      <div id="vis-body">
+        <div class="site-scores four">
+          <div class="tile"><span class="muted small">Mentioned in</span><b id="vis-mention">–</b></div>
+          <div class="tile"><span class="muted small">Site cited in</span><b id="vis-cite">–</b></div>
+          <div class="tile"><span class="muted small">Share of voice</span><b id="vis-sov">–</b></div>
+          <div class="tile"><span class="muted small">Avg position</span><b id="vis-pos">–</b></div>
+        </div>
+        <div id="vis-sentiment" class="muted small"></div>
+        <div id="vis-trend"></div>
+        <h3 class="sub">You vs competitors</h3>
+        <table id="vis-table" class="vis-table"></table>
+        <h3 class="sub">Sources AI cites most</h3>
+        <div id="vis-domains" class="vis-domains"></div>
+        <h3 class="sub">Prompts <span class="muted small">(gaps first: a competitor shows up and you don't)</span></h3>
+        <div id="vis-prompts-list" class="issues"></div>
+      </div>
+    </section>
+  </main>
+
   <!-- settings -->
   <main id="view-settings" hidden>
     <h2>Settings</h2>
@@ -186,6 +255,7 @@
     <hr>
     <p class="muted small">AEO rules follow "AEO &amp; GEO: A Developer's Implementation Guide" (Nov 2026). There is no standard AEO score; this one weights crawler access 20%, answer-first content 20%, page structure 15%, structured data 15%, head tags 10%, trust signals 10% and technical &amp; security 10%. Blockers such as noindex or a robots.txt block cap the score at 59 (grade D). The accessibility score is separate and weights axe-core rules by impact.</p>
     <button id="btn-reset-history">Clear saved reports</button>
+    <button id="btn-reset-vis">Clear visibility history</button>
   </main>
 
   <template id="tpl-issue">

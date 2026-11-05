@@ -2,6 +2,7 @@ import { scorePage, diffRuns, hashKey, CATEGORIES, AREAS, A11Y_GROUPS, areaOf, s
 import { MODELS, askClaude, estimateCost, describeError, streamText, BRIEF_SYSTEM, buildBriefInput } from "./claude.js";
 import { crawlSite, normalizeUrl } from "./crawler.js";
 import { fetchInfo, originTech } from "./tech.js";
+import { initVis, showVis, refreshCapture, visDownload } from "./visui.js";
 import { pageReportHtml, siteReportHtml, siteIssues, issuesCsv, download, slug, briefMarkdown, siteBriefMarkdown } from "./report.js";
 
 const $ = (id) => document.getElementById(id);
@@ -9,7 +10,7 @@ const params = new URLSearchParams(location.search);
 const FIXED_TAB = params.get("tabId") ? Number(params.get("tabId")) : null; // used by tests
 
 const state = {
-  mode: "home", // home | page | site
+  mode: "home", // home | page | site | vis
   settingsOpen: false,
   page: null, // { tabId, url, snap, result, a11y, run, live, fromSite }
   site: null, // stored site report
@@ -121,10 +122,11 @@ function setMode(mode) {
   $("view-home").hidden = mode !== "home" || state.settingsOpen;
   $("view-main").hidden = mode !== "page" || state.settingsOpen;
   $("view-site").hidden = mode !== "site" || state.settingsOpen;
+  $("view-vis").hidden = mode !== "vis" || state.settingsOpen;
   $("view-settings").hidden = !state.settingsOpen;
   $("btn-rescan").hidden = !(mode === "page" && state.page?.live) && mode !== "site";
   $("btn-rescan").title = mode === "site" ? "Crawl the site again" : "Re-scan this page";
-  $("btn-download").hidden = !((mode === "page" && state.page?.result) || (mode === "site" && state.site?.pages?.length));
+  $("btn-download").hidden = !((mode === "page" && state.page?.result) || (mode === "site" && state.site?.pages?.length) || mode === "vis");
   $("btn-close").hidden = mode === "home";
   $("download-menu").hidden = true;
 }
@@ -777,6 +779,7 @@ function renderSite() {
 // ---------------------------------------------------------------- downloads
 
 async function downloadReport(format) {
+  if (format.startsWith("vis-")) return visDownload(format);
   const stamp = new Date().toISOString().slice(0, 10);
   if (state.mode === "site" && state.site) {
     const s = state.site;
@@ -868,6 +871,7 @@ function closeSettings() {
   setMode(state.mode);
   if (state.mode === "page" && state.page?.result) renderClaude();
   if (state.mode === "home") showHome();
+  if (state.mode === "vis") showVis();
 }
 
 async function saveSettings() {
@@ -950,6 +954,7 @@ $("btn-back-site").onclick = () => state.site && renderSite();
 $("btn-open-live").onclick = () => state.page?.url && openAndScan(state.page.url);
 $("btn-download").onclick = (e) => {
   e.stopPropagation();
+  for (const b of document.querySelectorAll("#download-menu button")) b.hidden = (state.mode === "vis") !== b.classList.contains("vis-only");
   $("menu-brief-ai").hidden = !(state.mode === "page" && state.page?.live);
   $("download-menu").hidden = !$("download-menu").hidden;
 };
@@ -990,6 +995,10 @@ chrome.tabs.onUpdated.addListener((tabId, info) => {
     currentTab().then((t) => t?.id === tabId && showHome());
     return;
   }
+  if (state.mode === "vis") {
+    currentTab().then((t) => t?.id === tabId && refreshCapture());
+    return;
+  }
   if (state.mode !== "page" || !state.page?.live || state.crawlAbort) return;
   if (tabId !== (FIXED_TAB || state.page.tabId)) return;
   clearTimeout(reloadTimer);
@@ -999,6 +1008,7 @@ if (!FIXED_TAB) {
   chrome.tabs.onActivated.addListener(() => {
     if (state.crawlAbort) return;
     if (state.mode === "home") return showHome();
+    if (state.mode === "vis") return refreshCapture();
     if (state.mode === "page" && state.page?.live) {
       state.claudeAbort?.abort();
       scanPage({ reason: "tab" });
@@ -1006,8 +1016,11 @@ if (!FIXED_TAB) {
   });
 }
 
+initVis({ state, setMode, openAndScan, currentTab, flash, colorFor, showHome });
+
 (async () => {
   await loadSettings();
+  if (params.get("view") === "vis") return showVis();
   $("toggle-highlight").checked = state.highlight;
   const tab = await currentTab();
   if (scannable(tab?.url)) scanPage({ reason: "open" });

@@ -1,10 +1,10 @@
 # AEO Scorer (Chrome extension)
 
-A Chrome side panel that scores a page or a whole site for Answer Engine Optimization (AEO), Generative Engine Optimization (GEO), schema and accessibility. It highlights the problems on the page, re-checks them after you fix them, and exports reports to share with your team. The rules follow "AEO & GEO: A Developer's Implementation Guide" (Nov 2026).
+A Chrome side panel that scores a page or a whole site for Answer Engine Optimization (AEO), Generative Engine Optimization (GEO), schema and accessibility. It highlights the problems on the page, re-checks them after you fix them, exports reports to share with your team, and tracks whether AI answers mention your brand and cite your site. The rules follow "AEO & GEO: A Developer's Implementation Guide" (Nov 2026).
 
 ## Install (load unpacked)
 
-1. Unzip `aeo-scorer-0.4.0.zip` (or run `npm install && npm run build` and use `dist/`).
+1. Run `npm install && npm run build` and use the `dist/` folder (or unzip a packaged `aeo-scorer-<version>.zip`).
 2. Open `chrome://extensions`, turn on **Developer mode**, click **Load unpacked**, and pick the unzipped folder.
 3. Pin the extension and click its icon. The panel opens on the right and stays open while you reload or navigate.
 
@@ -23,6 +23,19 @@ A Chrome side panel that scores a page or a whole site for Answer Engine Optimiz
 - **Reports.** The download button exports an HTML report (opens in any browser, prints to PDF) or a CSV with one row per issue, for the page or the whole site.
 - **AI brief.** A Markdown fix list to paste into Claude Code, Cursor or Copilot: every failing issue with where it is, the fix and a "done when" test. With an API key, "AI brief with code fixes written by Claude" reads the real page HTML and detected stack (Next.js, WordPress, Webflow, Shopify and more) and writes the exact code change per issue.
 
+## AI visibility tracker
+
+Open it from the start screen (**Open tracker**). It does what Profound, Otterly, Peec and the Semrush and Ahrefs AI trackers do, on your own API key.
+
+- **Set up.** Enter your brand (and other names), domain, competitors and the prompts your buyers ask. **Suggest prompts with Claude** reads your homepage and writes 15 realistic prompts, mostly non-branded.
+- **Run now.** Claude answers every prompt with live web search under a neutral system prompt that does not name your brand, so the answer is not biased. For each answer the tracker records whether your brand is mentioned, its position among the tracked brands, whether your site is cited, which competitors appear, and (with a cheap Haiku call) whether the answer is positive, neutral or negative about you.
+- **Dashboard.** Mention rate, citation rate, share of voice, average position and sentiment; a table of you against each competitor; the domains AI cites most (yours in green, competitors in orange); a trend line across runs; and every prompt with the full answer, highlighted names and its sources. Prompts where a competitor shows up and you don't are listed first as gaps.
+- **Real ChatGPT, Perplexity, Google AI Mode, Gemini and Copilot answers.** Each prompt has Ask ChatGPT, Ask Perplexity and Ask Google AI buttons that open the prompt in that app. When the panel sees an assistant tab, a **Capture this answer** card appears. It reads the answer and its source links from the page (or only what you selected), matches it to your prompt, and adds it to the dashboard with its own engine filter. This uses your own logged-in session, needs no API key, and avoids scraping those services from a server.
+- **From gap to fix.** On a gap, **Scan cited competitor page** opens the page AI chose instead of yours in the AEO scorer, and **Scan my site** scores yours, so you can compare.
+- **Scheduled re-runs.** Daily or weekly, in the background while Chrome is open. The toolbar badge shows the latest mention rate.
+- **Exports.** Visibility report (HTML) and prompt results (CSV) from the download button.
+- **Cost.** About $0.02–0.05 per prompt on Opus 5.5 at low effort (tokens plus $0.01 per web search), less on Sonnet or Haiku. Web search must be allowed for your organization in the Claude Console.
+
 ## Claude details
 
 - Called from the panel with the official `@anthropic-ai/sdk`, streaming, structured JSON output, effort `low` by default.
@@ -39,12 +52,15 @@ npm run build      # bundles src/ into dist/
 npm test           # builds, then runs test/e2e.cjs in Chromium (needs Playwright and test pages on :8765)
 ```
 
-Serve the test pages first: `cd test/site && python3 -m http.server 8765`. The test loads the extension, scores a good and a bad page, checks highlights, the mark-fixed and reload re-check, and runs Ask Claude against a mocked API.
+Serve the test pages first: `cd test/site && python3 -m http.server 8765`. The test loads the extension, scores a good and a bad page, checks highlights, the mark-fixed and reload re-check, and runs Ask Claude against a mocked API. `test/vis.cjs` covers the tracker: prompt suggestions, a run with web search and `pause_turn`, metrics, a capture from a fake ChatGPT page, exports and a scheduled run.
 
 ## Files
 
 - `src/manifest.json` – Manifest V3, side panel, permissions
-- `src/background.js` – opens the side panel from the toolbar icon
+- `src/background.js` – opens the side panel from the toolbar icon and runs scheduled visibility checks
+- `src/visibility.js` – visibility engine: Claude with web search, mention and citation analysis, metrics
+- `src/capture.js` – reads answers and sources from ChatGPT, Perplexity, Google, Gemini and Copilot tabs
+- `src/visui.js` – the tracker view, dashboard and exports
 - `src/content.js` – page snapshot, axe-core runner and highlight overlay (injected on demand)
 - `src/rules.js` – the scoring rules and accessibility grouping (pure functions)
 - `src/crawler.js` – the site crawler

@@ -66,7 +66,8 @@ export function pageReportHtml({ url, title, result, a11y, ai, at }) {
     body += sortIssues(aiFindings).map((f) => issueBlock({ severity: f.severity, title: f.title, detail: f.problem, fix: f.fix, suggested: f.suggested_text, evidence: `Claude · ${f.category}` })).join("");
     if (ai.review.suggested_json_ld) body += `<h3>Suggested JSON-LD</h3><pre>${esc(ai.review.suggested_json_ld)}</pre>`;
   }
-  for (const area of ["aeo", "schema"]) {
+  if (result.blockers?.length) body += `<p style="color:var(--c)"><strong>Score capped at 59 (from ${result.rawScore})</strong> until these blockers are fixed: ${esc(result.blockers.join("; "))}.</p>`;
+  for (const area of ["aeo", "schema", "tech"]) {
     const list = byArea(area);
     body += `<h2>${esc(AREAS[area])} (${list.length})</h2>${list.length ? list.map((c) => issueBlock(c)).join("") : '<p class="muted">No issues.</p>'}`;
   }
@@ -104,7 +105,7 @@ export function siteIssues(pages) {
 
 export function siteReportHtml(site) {
   const ok = site.pages.filter((p) => !p.error);
-  const issues = siteIssues(ok);
+  const issues = [...(site.siteChecks || []), ...siteIssues(ok)];
   let body = `<h1>Site AEO report: ${esc(site.origin)}</h1><p class="muted">${ok.length} pages crawled from <a href="${esc(site.startUrl)}">${esc(site.startUrl)}</a> · ${esc(new Date(site.finishedAt || Date.now()).toLocaleString())}</p>`;
   body += scoreBoxes([
     ["Average AEO score", site.avgScore, `${ok.length} pages`],
@@ -115,7 +116,7 @@ export function siteReportHtml(site) {
     .sort((a, b) => (a.score ?? 101) - (b.score ?? 101))
     .map((p) => `<tr><td><a href="${esc(p.url)}">${esc(p.title || p.url)}</a><br><span class="muted">${esc(p.url)}</span></td><td>${p.error ? "error" : `<b style="color:${color(p.score)}">${p.score}</b>`}</td><td>${p.a11yScore ?? "–"}</td><td>${p.error ? esc(p.error) : (p.issues || []).length}</td></tr>`)
     .join("")}</table>`;
-  for (const area of ["aeo", "schema", "a11y"]) {
+  for (const area of ["aeo", "schema", "tech", "a11y"]) {
     const list = issues.filter((i) => areaOf(i.category) === area);
     body += `<h2>${esc(AREAS[area])}: issues across the site (${list.length})</h2>`;
     body += list.length

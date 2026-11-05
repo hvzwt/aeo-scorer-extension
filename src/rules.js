@@ -3,12 +3,13 @@
 // the same code runs in the side panel and in Node tests.
 
 export const CATEGORIES = {
-  access: { label: "Crawler access", weight: 25 },
-  head: { label: "Head & meta tags", weight: 15 },
-  structure: { label: "Page structure", weight: 20 },
+  access: { label: "Crawler access", weight: 20 },
+  head: { label: "Head & meta tags", weight: 10 },
+  structure: { label: "Page structure", weight: 15 },
   answers: { label: "Answer-first content", weight: 20 },
-  schema: { label: "Structured data", weight: 10 },
+  schema: { label: "Structured data", weight: 15 },
   trust: { label: "Trust & evidence", weight: 10 },
+  tech: { label: "Technical & security", weight: 10 },
 };
 
 const SEVERITY_POINTS = { critical: 10, major: 5, minor: 2, info: 0 };
@@ -224,6 +225,21 @@ export function scorePage(snap, site = {}) {
           ? `Allowed (${bot.use}).`
           : `Blocked by "${v.rule}" in the ${v.matchedAgent === "*" ? "User-agent: *" : `User-agent: ${bot.token}`} group. ${bot.company}'s ${bot.use} cannot fetch this page.`,
         fix: `Add "User-agent: ${bot.token}\\nAllow: /" to robots.txt, and check that your CDN or WAF bot protection does not block it (guide §6.1).`,
+        evidence: "Documented",
+        section: "6.1",
+      });
+    }
+    const aiBots = SEARCH_BOTS.filter((b) => !["Googlebot", "Bingbot"].includes(b.token));
+    const allAiBlocked = aiBots.every((b) => !robotsVerdict(parsed, b.token, pathname).allowed);
+    if (allAiBlocked) {
+      add({
+        id: "ai-bots-all-blocked",
+        category: "access",
+        severity: "critical",
+        title: "At least one AI search crawler is allowed",
+        pass: false,
+        detail: "robots.txt blocks OAI-SearchBot, PerplexityBot and Claude-SearchBot. ChatGPT search, Perplexity and Claude cannot cite this page.",
+        fix: "Allow the AI search bots. Blocking training bots (GPTBot, ClaudeBot, Google-Extended) is a separate choice (guide §6.1).",
         evidence: "Documented",
         section: "6.1",
       });
@@ -929,6 +945,350 @@ export function scorePage(snap, site = {}) {
     });
   }
 
+  // more schema types
+  if (depth === 0) {
+    const website = ldNodes.find((n) => typesOf(n).includes("WebSite"));
+    add({
+      id: "jsonld-website",
+      category: "schema",
+      severity: "minor",
+      title: "WebSite schema on the home page",
+      pass: !!(website && website.name && website.url),
+      detail: website ? `WebSite: ${website.name || "no name"}${website.potentialAction ? " with SearchAction" : ""}.` : "No WebSite node.",
+      fix: 'Add {"@type":"WebSite","name":"…","url":"https://…"} on the home page; it gives engines your site name.',
+      evidence: "Documented",
+      section: "6.3",
+    });
+  }
+  const persons = ldNodes.filter((n) => typesOf(n).includes("Person") && n.name);
+  if (persons.length) {
+    const thin = persons.filter((p) => !p.url && !p.sameAs);
+    add({
+      id: "jsonld-person-fields",
+      category: "schema",
+      severity: "minor",
+      title: "Person entities link to a profile",
+      pass: thin.length === 0,
+      detail: thin.length ? `${thin.length} Person node(s) without url or sameAs, e.g. ${thin[0].name}.` : "Every Person has url or sameAs.",
+      fix: "Add url (author page) and sameAs (LinkedIn, GitHub) so engines can identify the author.",
+      evidence: "Practice",
+      section: "6.3",
+    });
+  }
+  const reviews = ldNodes.filter((n) => typesOf(n).includes("Review"));
+  if (reviews.length) {
+    const bad = reviews.filter((r) => !r.reviewRating || !r.author || (!r.itemReviewed && !ldNodes.some((n) => n.review)));
+    add({
+      id: "jsonld-review-fields",
+      category: "schema",
+      severity: "minor",
+      title: "Review schema has rating, author and item reviewed",
+      pass: bad.length === 0,
+      detail: bad.length ? `${bad.length} of ${reviews.length} Review nodes are incomplete.` : "Complete.",
+      fix: "Each Review needs reviewRating, author and itemReviewed (or must sit inside the item's review property).",
+      evidence: "Documented",
+      section: "6.3",
+    });
+  }
+  const events = ldNodes.filter((n) => typesOf(n).some((t) => /Event$/.test(t)));
+  if (events.length) {
+    const bad = events.filter((e) => !e.name || !e.startDate || !e.location);
+    add({
+      id: "jsonld-event-fields",
+      category: "schema",
+      severity: "minor",
+      title: "Event schema has name, startDate and location",
+      pass: bad.length === 0,
+      detail: bad.length ? `${bad.length} of ${events.length} Event nodes are missing name, startDate or location.` : "Complete.",
+      fix: "Add name, startDate (ISO 8601) and location (Place or VirtualLocation).",
+      evidence: "Documented",
+      section: "6.3",
+    });
+  }
+  const videoNodes = ldNodes.filter((n) => typesOf(n).includes("VideoObject"));
+  if (videoNodes.length || snap.videos > 0) {
+    const bad = videoNodes.filter((v) => !v.name || !v.thumbnailUrl || !v.uploadDate);
+    add({
+      id: "jsonld-video",
+      category: "schema",
+      severity: "minor",
+      title: "Videos have complete VideoObject schema",
+      pass: videoNodes.length > 0 && bad.length === 0,
+      detail: !videoNodes.length ? `${snap.videos} embedded video(s) but no VideoObject.` : bad.length ? `${bad.length} VideoObject node(s) missing name, thumbnailUrl or uploadDate.` : "Complete.",
+      fix: "Describe each video with VideoObject: name, description, thumbnailUrl, uploadDate, and contentUrl or embedUrl.",
+      evidence: "Documented",
+      section: "6.3",
+    });
+  }
+
+  // ---------------- technical & security ----------------
+  const isHttps = /^https:/i.test(snap.url);
+  const hdr = site.rawHtml?.headers || {};
+  add({
+    id: "https",
+    category: "tech",
+    severity: "critical",
+    title: "Served over HTTPS",
+    pass: isHttps || /^http:\/\/(localhost|127\.)/.test(snap.url),
+    detail: isHttps ? "HTTPS." : "This page is served over plain HTTP.",
+    fix: "Serve every page over HTTPS and redirect HTTP to HTTPS.",
+    evidence: "Documented",
+    section: "6.2",
+  });
+  if (/noindex|none/i.test(hdr["x-robots-tag"] || "")) {
+    add({
+      id: "header-noindex",
+      category: "access",
+      severity: "critical",
+      title: "No noindex in the X-Robots-Tag header",
+      pass: false,
+      detail: `X-Robots-Tag: ${hdr["x-robots-tag"]}`,
+      fix: "Remove noindex from the X-Robots-Tag response header (often set by a CDN or staging config).",
+      evidence: "Documented",
+      section: "5.3",
+    });
+  }
+  const t = site.tech;
+  if (isHttps && t) {
+    if (t.httpRedirectsToHttps !== null) {
+      add({
+        id: "http-to-https",
+        category: "tech",
+        severity: "major",
+        title: "HTTP redirects to HTTPS",
+        pass: t.httpRedirectsToHttps,
+        detail: t.httpRedirectsToHttps ? "http:// redirects to https://." : "The http:// version does not redirect to https://.",
+        fix: "Add a permanent (301) redirect from HTTP to HTTPS for every URL.",
+        evidence: "Documented",
+        section: "6.2",
+      });
+    }
+    add({
+      id: "hsts",
+      category: "tech",
+      severity: "minor",
+      title: "Strict-Transport-Security header",
+      pass: !!hdr["strict-transport-security"],
+      detail: hdr["strict-transport-security"] || "No HSTS header.",
+      fix: "Send Strict-Transport-Security: max-age=31536000; includeSubDomains.",
+      evidence: "Practice",
+      section: "6.2",
+    });
+  }
+  if (site.rawHtml?.headers) {
+    const sec = ["content-security-policy", "x-content-type-options", "referrer-policy", "permissions-policy"];
+    const frame = !!hdr["x-frame-options"] || /frame-ancestors/i.test(hdr["content-security-policy"] || "");
+    const missing = sec.filter((k) => !hdr[k]).concat(frame ? [] : ["x-frame-options / frame-ancestors"]);
+    add({
+      id: "security-headers",
+      category: "tech",
+      severity: "minor",
+      title: "Security headers",
+      pass: missing.length <= 1,
+      detail: missing.length ? `Missing: ${missing.join(", ")}.` : "All common security headers present.",
+      fix: "Add Content-Security-Policy, X-Content-Type-Options: nosniff, Referrer-Policy, Permissions-Policy and frame-ancestors (or X-Frame-Options).",
+      evidence: "Practice",
+      section: "6.2",
+    });
+    add({
+      id: "cache-headers",
+      category: "tech",
+      severity: "minor",
+      title: "Caching headers",
+      pass: !!(hdr["cache-control"] || hdr.etag || hdr["last-modified"]) && !/no-store/i.test(hdr["cache-control"] || ""),
+      detail: hdr["cache-control"] ? `Cache-Control: ${hdr["cache-control"]}` : hdr.etag || hdr["last-modified"] ? "ETag / Last-Modified set, no Cache-Control." : "No Cache-Control, ETag or Last-Modified.",
+      fix: "Send Cache-Control (e.g. public, max-age=300, stale-while-revalidate) and ETag so crawlers can revalidate cheaply.",
+      evidence: "Practice",
+      section: "6.2",
+    });
+    const ms = site.rawHtml.ms;
+    const kb = Math.round((site.rawHtml.bytes || 0) / 1024);
+    add({
+      id: "response-time",
+      category: "tech",
+      severity: "minor",
+      title: "Fast server response",
+      pass: ms != null && ms < 800,
+      detail: `HTML served in ${ms ?? "?"} ms, ${kb} KB${hdr["content-encoding"] ? `, ${hdr["content-encoding"]} compressed` : ""}.`,
+      fix: "Keep time to first byte under about 0.8 s: cache HTML at the edge and render statically where you can. Slow pages may be skipped by AI fetchers that answer in real time.",
+      evidence: "Practice",
+      section: "6.2",
+    });
+    const cdn = hdr["cf-ray"] ? "Cloudflare" : hdr["x-sucuri-id"] ? "Sucuri" : hdr["x-akamai-transformed"] ? "Akamai" : hdr["x-amz-cf-id"] ? "CloudFront" : hdr["x-vercel-id"] ? "Vercel" : /fastly/i.test(hdr["x-served-by"] || hdr.via || "") ? "Fastly" : null;
+    if (cdn) {
+      add({
+        id: "waf-detected",
+        category: "tech",
+        severity: "info",
+        title: `CDN / firewall detected: ${cdn}`,
+        pass: true,
+        detail: `${cdn} can block AI crawlers even when robots.txt allows them.`,
+        fix: `Check ${cdn}'s bot settings (for example Cloudflare's "Block AI bots") and allow OAI-SearchBot, PerplexityBot and Claude-SearchBot (guide §6.1).`,
+        section: "6.1",
+      });
+    }
+  }
+  if (t) {
+    if (t.notFoundStatus != null) {
+      add({
+        id: "soft-404",
+        category: "tech",
+        severity: "major",
+        title: "Missing pages return 404",
+        pass: t.notFoundStatus === 404 || t.notFoundStatus === 410,
+        detail: `A made-up URL returned HTTP ${t.notFoundStatus}.${t.notFoundStatus === 200 ? " That is a soft 404: engines may index error pages." : ""}`,
+        fix: "Return a real 404 (or 410) status for URLs that do not exist.",
+        evidence: "Documented",
+        section: "6.2",
+      });
+    }
+    add({
+      id: "sitemap-xml",
+      category: "tech",
+      severity: "minor",
+      title: "sitemap.xml is reachable",
+      pass: t.sitemapStatus === 200 || !!(site.robots?.text && /sitemap:/i.test(site.robots.text)),
+      detail: t.sitemapStatus === 200 ? "/sitemap.xml is valid XML." : `/sitemap.xml returned ${t.sitemapStatus ?? "no response"}${t.sitemapStatus === 415 ? " (not XML)" : ""}.`,
+      fix: "Publish a sitemap with accurate <lastmod> and list it in robots.txt (guide §6.5).",
+      evidence: "Documented",
+      section: "6.5",
+    });
+    add({
+      id: "security-txt",
+      category: "tech",
+      severity: "info",
+      title: "security.txt",
+      pass: true,
+      detail: t.securityTxt ? "/.well-known/security.txt found." : "No /.well-known/security.txt.",
+      fix: "Optional trust signal: publish a security.txt with a Contact line.",
+      section: null,
+    });
+    const e = t.email;
+    if (e && !e.skipped && !e.error && e.mx > 0) {
+      add({
+        id: "email-spf",
+        category: "tech",
+        severity: "minor",
+        title: `SPF record for ${e.domain}`,
+        pass: !!e.spf,
+        detail: e.spf || "No SPF record.",
+        fix: "Publish a TXT record starting v=spf1 listing the services that send your mail.",
+        evidence: "Practice",
+        section: null,
+      });
+      add({
+        id: "email-dmarc",
+        category: "tech",
+        severity: "minor",
+        title: `DMARC record for ${e.domain}`,
+        pass: !!e.dmarc,
+        detail: e.dmarc || "No _dmarc TXT record.",
+        fix: "Publish _dmarc TXT: v=DMARC1; p=quarantine; rua=mailto:… (start with p=none to monitor).",
+        evidence: "Practice",
+        section: null,
+      });
+      add({
+        id: "email-dkim",
+        category: "tech",
+        severity: "info",
+        title: "DKIM",
+        pass: true,
+        detail: e.dkimSelector ? `DKIM key found at selector "${e.dkimSelector}".` : "No DKIM key at common selectors (google, selector1, default…). Your provider may use another selector.",
+        fix: "Turn on DKIM signing with your email provider.",
+        section: null,
+      });
+      add({
+        id: "email-mta-sts",
+        category: "tech",
+        severity: "info",
+        title: "MTA-STS",
+        pass: true,
+        detail: e.mtaSts ? "MTA-STS enabled." : "No MTA-STS policy.",
+        fix: "Optional: MTA-STS enforces TLS for mail sent to your domain.",
+        section: null,
+      });
+    }
+  }
+  if (snap.mixedContent?.length) {
+    add({
+      id: "mixed-content",
+      category: "tech",
+      severity: "major",
+      title: "No insecure (http://) resources",
+      pass: false,
+      detail: `${snap.mixedContent.length} resource(s) load over http://, e.g. ${snap.mixedContent[0].url}.`,
+      fix: "Load every image, script and stylesheet over https://.",
+      selector: snap.mixedContent[0].selector,
+      items: snap.mixedContent.map((m) => ({ selector: m.selector, label: "http:// resource" })),
+      evidence: "Documented",
+      section: "6.2",
+    });
+  }
+  const imf = snap.imageFormats;
+  if (imf && imf.large >= 2) {
+    add({
+      id: "image-formats",
+      category: "tech",
+      severity: "minor",
+      title: "Images use modern formats and lazy loading",
+      pass: imf.modern >= imf.large / 2 && imf.belowFoldLazy >= imf.belowFold / 2 && !imf.oversized.length,
+      detail: `${imf.modern}/${imf.large} large images are WebP/AVIF; ${imf.belowFoldLazy}/${imf.belowFold} below-the-fold images lazy-load${imf.oversized.length ? `; ${imf.oversized.length} served at over twice their display size` : ""}.`,
+      fix: 'Serve WebP or AVIF, add loading="lazy" below the fold, and size images to how they are shown.',
+      selector: imf.oversized[0]?.selector,
+      items: imf.oversized.map((o) => ({ selector: o.selector, label: `${o.natural}px shown at ${o.shown}px` })),
+      evidence: "Documented",
+      section: "5.3",
+    });
+  }
+  const noSize = (snap.images || []).filter((i) => !i.hasSize);
+  if (snap.images?.length) {
+    add({
+      id: "img-dimensions",
+      category: "tech",
+      severity: "minor",
+      title: "Images have width and height",
+      pass: noSize.length === 0,
+      detail: noSize.length ? `${noSize.length} of ${snap.images.length} images have no width/height attributes (layout shift).` : "All images sized.",
+      fix: "Add width and height attributes to every <img>.",
+      selector: noSize[0]?.selector,
+      items: noSize.slice(0, 20).map((i) => ({ selector: i.selector, label: "No width/height" })),
+      evidence: "Documented",
+      section: "5.3",
+    });
+  }
+  if (snap.consent || snap.gtagConsent) {
+    add({
+      id: "consent-mode",
+      category: "tech",
+      severity: "info",
+      title: "Cookie consent",
+      pass: true,
+      detail: `${snap.consent ? "A consent banner/tool is present." : ""} ${snap.gtagConsent ? "Google Consent Mode is configured." : "Google Consent Mode not detected."}`.trim(),
+      fix: "Make sure the consent banner does not hide the main content from crawlers or block it until a click.",
+      section: null,
+    });
+  }
+  try {
+    const u = new URL(snap.url);
+    const problems = [];
+    if (/[A-Z]/.test(u.pathname)) problems.push("uppercase letters");
+    if (/_/.test(u.pathname)) problems.push("underscores");
+    if (u.href.length > 115) problems.push(`${u.href.length} characters long`);
+    if ([...u.searchParams.keys()].length > 2) problems.push(`${[...u.searchParams.keys()].length} query parameters`);
+    if (u.pathname.split("/").filter(Boolean).length > 4) problems.push("deeply nested");
+    add({
+      id: "url-structure",
+      category: "tech",
+      severity: "minor",
+      title: "Clean, readable URL",
+      pass: problems.length === 0,
+      detail: problems.length ? `URL has ${problems.join(", ")}.` : "Short, lowercase, hyphenated.",
+      fix: "Use short lowercase URLs with hyphens that name the topic, e.g. /guides/nextjs-schema.",
+      evidence: "Documented",
+      section: "5.3",
+    });
+  } catch {}
+
   // ---------------- trust & evidence ----------------
   const personAuthor = ldNodes.some((n) => typesOf(n).includes("Person"));
   add({
@@ -1032,16 +1392,23 @@ export function summarize(checks) {
     categories[key] = { ...cat, score: total ? Math.round((got / total) * 100) : 100, passed: cs.filter((c) => c.pass).length, total: cs.length };
   }
   const wsum = Object.values(categories).reduce((s, c) => s + c.weight, 0);
-  const score = Math.round(Object.values(categories).reduce((s, c) => s + c.score * c.weight, 0) / wsum);
-  return { score, grade: grade(score), categories, checks };
+  const raw = Math.round(Object.values(categories).reduce((s, c) => s + c.score * c.weight, 0) / wsum);
+  const blockers = checks.filter((c) => BLOCKERS.has(c.id) && !c.pass);
+  for (const b of blockers) b.blocker = true;
+  const score = blockers.length ? Math.min(raw, 59) : raw;
+  return { score, rawScore: raw, grade: grade(score), categories, checks, blockers: blockers.map((b) => b.title) };
 }
 
 export function grade(score) {
-  if (score >= 90) return "Excellent";
-  if (score >= 75) return "Good";
-  if (score >= 55) return "Needs work";
-  return "Poor";
+  if (score >= 90) return "A · Excellent";
+  if (score >= 75) return "B · Good";
+  if (score >= 60) return "C · Fair";
+  if (score >= 40) return "D · Needs work";
+  return "F · Poor";
 }
+
+// Failing any of these caps the AEO score at 59 (grade D): the page can't be cited however good the rest is.
+const BLOCKERS = new Set(["robots-noindex", "robots-nosnippet", "header-noindex", "http-status", "robots-allow-googlebot", "robots-allow-bingbot", "ai-bots-all-blocked", "server-rendered"]);
 
 /**
  * Compare a new run with the previous one for the same URL.
@@ -1066,12 +1433,14 @@ export function diffRuns(prevChecks, nextChecks, marked = {}) {
 export const AREAS = {
   aeo: "AEO & GEO",
   schema: "Schema & tags",
+  tech: "Technical & security",
   a11y: "Accessibility",
 };
 
 export function areaOf(category) {
   if (category === "schema" || category === "head") return "schema";
   if (category === "a11y") return "a11y";
+  if (category === "tech") return "tech";
   return "aeo";
 }
 
@@ -1159,4 +1528,111 @@ export function scoreAccessibility(axe) {
     groups[key] = { label, count: cs.length, critical: cs.filter((c) => c.severity === "critical").length };
   }
   return { score, grade: grade(score), groups, checks, passedRules: axe.passes.length };
+}
+
+// ---------------------------------------------------------------------------
+// Site-wide checks across crawled pages
+
+/**
+ * pages: [{ url, meta: { title, description, canonical, hreflang: [{lang, href}] } }]
+ * Returns issues shaped like checks, each with a `pages` list.
+ */
+export function siteWideChecks(pages) {
+  const ok = pages.filter((p) => p.meta);
+  const out = [];
+  const norm = (u) => {
+    try {
+      const x = new URL(u);
+      x.hash = "";
+      return x.href.replace(/\/$/, "");
+    } catch {
+      return u;
+    }
+  };
+  const dupes = (field, id, label, severity, fix) => {
+    const groups = new Map();
+    for (const p of ok) {
+      const v = (p.meta[field] || "").trim().toLowerCase();
+      if (!v) continue;
+      // pages that canonicalise to the same URL are not duplicates
+      const key = v;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(p);
+    }
+    const dup = [...groups.entries()].filter(([, ps]) => new Set(ps.map((p) => norm(p.meta.canonical || p.url))).size > 1);
+    if (!dup.length) return;
+    out.push({
+      id,
+      category: "head",
+      severity,
+      title: label,
+      pass: false,
+      detail: `${dup.length} ${field === "title" ? "titles" : "descriptions"} are shared by more than one page, e.g. "${dup[0][1][0].meta[field]}" on ${dup[0][1].length} pages.`,
+      fix,
+      evidence: "Documented",
+      section: "5.3",
+      pages: dup.flatMap(([, ps]) => ps.map((p) => p.url)),
+    });
+  };
+  dupes("title", "site-duplicate-titles", "Duplicate page titles", "major", "Give every page a unique title that names its own topic. Engines use the title as the citation link text.");
+  dupes("description", "site-duplicate-descriptions", "Duplicate meta descriptions", "minor", "Write a one-sentence answer summary per page instead of a shared template description.");
+
+  // hreflang reciprocity: if A says B is its "fr" version, B must link back to A.
+  const byUrl = new Map(ok.map((p) => [norm(p.url), p]));
+  const broken = [];
+  for (const p of ok) {
+    for (const h of p.meta.hreflang || []) {
+      if (!h.href || (h.lang || "").toLowerCase() === "x-default") continue;
+      let target;
+      try {
+        target = norm(new URL(h.href, p.url).href);
+      } catch {
+        continue;
+      }
+      if (target === norm(p.url)) continue;
+      const other = byUrl.get(target);
+      if (!other) continue; // not crawled, cannot judge
+      const back = (other.meta.hreflang || []).some((x) => {
+        try {
+          return norm(new URL(x.href, other.url).href) === norm(p.url);
+        } catch {
+          return false;
+        }
+      });
+      if (!back) broken.push({ from: p.url, to: target, lang: h.lang });
+    }
+  }
+  if (broken.length) {
+    out.push({
+      id: "site-hreflang-reciprocal",
+      category: "head",
+      severity: "major",
+      title: "hreflang links are reciprocal",
+      pass: false,
+      detail: `${broken.length} hreflang link(s) are not returned, e.g. ${broken[0].from} → ${broken[0].to} (${broken[0].lang}) has no link back.`,
+      fix: "Every language version must list all the others, including itself. Search engines ignore one-way hreflang.",
+      evidence: "Documented",
+      section: "5.3",
+      pages: [...new Set(broken.map((b) => b.from))],
+    });
+  }
+  // canonical pointing at pages that were not reachable
+  const canonTargets = ok.filter((p) => p.meta.canonical && norm(p.meta.canonical) !== norm(p.url));
+  const errored = new Set(pages.filter((p) => p.error).map((p) => norm(p.url)));
+  const badCanon = canonTargets.filter((p) => errored.has(norm(p.meta.canonical)));
+  if (badCanon.length) {
+    out.push({
+      id: "site-canonical-broken",
+      category: "head",
+      severity: "major",
+      title: "Canonicals point to working pages",
+      pass: false,
+      detail: `${badCanon.length} page(s) name a canonical URL that returned an error.`,
+      fix: "Point canonical tags at live, indexable pages.",
+      evidence: "Documented",
+      section: "5.3",
+      pages: badCanon.map((p) => p.url),
+    });
+  }
+  return out;
 }

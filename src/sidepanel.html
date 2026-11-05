@@ -91,6 +91,8 @@
       </div>
     </section>
 
+    <section id="blockers" class="recheck warn" hidden></section>
+
     <section id="recheck" class="recheck" hidden></section>
 
     <section id="categories" class="categories" hidden></section>
@@ -112,6 +114,7 @@
       <button data-area="all" aria-pressed="true">All</button>
       <button data-area="aeo" aria-pressed="false">AEO &amp; GEO</button>
       <button data-area="schema" aria-pressed="false">Schema &amp; tags</button>
+      <button data-area="tech" aria-pressed="false">Technical</button>
       <button data-area="a11y" aria-pressed="false">Accessibility</button>
     </div>
     <nav id="tabs" class="tabs" hidden role="tablist">
@@ -141,6 +144,7 @@
         <button data-area="all" aria-pressed="true">All</button>
         <button data-area="aeo" aria-pressed="false">AEO &amp; GEO</button>
         <button data-area="schema" aria-pressed="false">Schema &amp; tags</button>
+        <button data-area="tech" aria-pressed="false">Technical</button>
         <button data-area="a11y" aria-pressed="false">Accessibility</button>
       </div>
       <h3 class="sub">Issues across the site</h3>
@@ -178,7 +182,7 @@
     </div>
     <p id="set-status" class="muted small" role="status"></p>
     <hr>
-    <p class="muted small">AEO rules follow "AEO &amp; GEO: A Developer's Implementation Guide" (Nov 2026). There is no standard AEO score; this one weights crawler access 25%, structure 20%, answer-first content 20%, head tags 15%, structured data 10% and trust signals 10%. The accessibility score is separate and weights axe-core rules by impact.</p>
+    <p class="muted small">AEO rules follow "AEO &amp; GEO: A Developer's Implementation Guide" (Nov 2026). There is no standard AEO score; this one weights crawler access 20%, answer-first content 20%, page structure 15%, structured data 15%, head tags 10%, trust signals 10% and technical &amp; security 10%. Blockers such as noindex or a robots.txt block cap the score at 59 (grade D). The accessibility score is separate and weights axe-core rules by impact.</p>
     <button id="btn-reset-history">Clear saved reports</button>
   </main>
 

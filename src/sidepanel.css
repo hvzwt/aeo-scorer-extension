@@ -163,3 +163,5 @@ pre { white-space: pre-wrap; word-break: break-word; background: var(--panel); b
 .back { margin-bottom: 8px; }
 .link { border: 0; background: none; color: var(--accent); padding: 0; }
 .chip.wcag { color: var(--accent); }
+.chip.blocker { color: var(--critical); border-color: var(--critical); font-weight: 700; }
+.recheck.warn#blockers { margin-top: 12px; font-weight: 600; }

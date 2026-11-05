@@ -1,6 +1,7 @@
-import { scorePage, diffRuns, hashKey, CATEGORIES, AREAS, A11Y_GROUPS, areaOf, scoreAccessibility } from "./rules.js";
+import { scorePage, diffRuns, hashKey, CATEGORIES, AREAS, A11Y_GROUPS, areaOf, scoreAccessibility, siteWideChecks } from "./rules.js";
 import { MODELS, askClaude, estimateCost, describeError } from "./claude.js";
 import { crawlSite, normalizeUrl } from "./crawler.js";
+import { fetchInfo, originTech } from "./tech.js";
 import { pageReportHtml, siteReportHtml, siteIssues, issuesCsv, download, slug } from "./report.js";
 
 const $ = (id) => document.getElementById(id);
@@ -44,29 +45,18 @@ async function loadSettings() {
 
 const siteCache = new Map(); // origin -> { at, robots, llmsTxt }
 
-async function fetchText(url, timeoutMs = 8000) {
-  const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), timeoutMs);
-  try {
-    const res = await fetch(url, { credentials: "omit", redirect: "follow", signal: ctrl.signal, cache: "no-store" });
-    const text = res.ok ? (await res.text()).slice(0, 2_000_000) : "";
-    return { status: res.status, text, contentType: res.headers.get("content-type") || "" };
-  } catch {
-    return null;
-  } finally {
-    clearTimeout(t);
-  }
-}
+const fetchText = (url) => fetchInfo(url);
 
 async function originData(origin) {
   let cached = siteCache.get(origin);
   if (!cached || Date.now() - cached.at > 5 * 60_000) {
-    const [robots, llms] = await Promise.all([fetchText(`${origin}/robots.txt`), fetchText(`${origin}/llms.txt`)]);
+    const [robots, llms, tech] = await Promise.all([fetchText(`${origin}/robots.txt`), fetchText(`${origin}/llms.txt`), originTech(origin)]);
     const robotsOk = robots && robots.status === 200 && !/text\/html/.test(robots.contentType);
     cached = {
       at: Date.now(),
       robots: robotsOk ? robots : robots && { status: robots.status === 200 ? 404 : robots.status, text: "" },
       llmsTxt: llms ? llms.status === 200 && !/text\/html/.test(llms.contentType) : null,
+      tech,
     };
     siteCache.set(origin, cached);
   }
@@ -76,7 +66,7 @@ async function originData(origin) {
 async function siteData(url) {
   const o = await originData(new URL(url).origin);
   const rawHtml = await fetchText(url); // the server response, without running JavaScript
-  return { robots: o.robots, llmsTxt: o.llmsTxt, rawHtml };
+  return { robots: o.robots, llmsTxt: o.llmsTxt, rawHtml, tech: o.tech };
 }
 
 // ---------------------------------------------------------------- page bridge
@@ -276,7 +266,7 @@ async function openAndScan(url) {
 function showState(msg) {
   $("state-msg").hidden = false;
   $("state-msg").textContent = msg;
-  for (const id of ["summary", "recheck", "categories", "a11y-groups", "claude", "tabs", "filters", "page-back"]) $(id).hidden = true;
+  for (const id of ["summary", "recheck", "blockers", "categories", "a11y-groups", "claude", "tabs", "filters", "page-back"]) $(id).hidden = true;
   $("issues").replaceChildren();
 }
 
@@ -300,6 +290,8 @@ function renderPage() {
 
   $("score").textContent = result.score;
   $("grade").textContent = result.grade;
+  $("blockers").hidden = !result.blockers?.length;
+  if (result.blockers?.length) $("blockers").textContent = `Score capped at 59 (from ${result.rawScore}) until you fix: ${result.blockers.join("; ")}.`;
   const fg = $("ring-fg");
   fg.style.strokeDashoffset = String(326.7 * (1 - result.score / 100));
   fg.style.stroke = colorFor(result.score);
@@ -453,6 +445,7 @@ function issueCard(issue, { marked = false, live = false, pages = null, totalPag
     chip(issue.kind === "ai" ? issue.aiCategory : CATEGORIES[issue.category]?.label || issue.category);
     if (issue.evidence) chip(issue.evidence);
     if (issue.section) chip(`§${issue.section}`);
+    if (issue.blocker) chip("Blocker", "blocker");
   }
 
   if (issue.suggested) {
@@ -707,6 +700,7 @@ async function startCrawl(startUrl) {
           score: result.score,
           a11yScore: a11y?.score ?? null,
           issues: checks.filter((c) => !c.pass && c.severity !== "info").map(compact),
+          meta: { title: snap.title, description: snap.metaDescription, canonical: snap.canonical ? new URL(snap.canonical, snap.url).href : null, hreflang: snap.hreflang },
           links: snap.internalLinks,
         };
       },
@@ -715,6 +709,7 @@ async function startCrawl(startUrl) {
     const avg = (xs) => (xs.length ? Math.round(xs.reduce((s, x) => s + x, 0) / xs.length) : null);
     const report = {
       ...res,
+      siteChecks: siteWideChecks(res.pages),
       startedAt,
       finishedAt: Date.now(),
       maxPages,
@@ -750,7 +745,7 @@ function renderSite() {
   };
   tile("site-score", s.avgScore);
   tile("site-a11y", s.avgA11y);
-  const issues = siteIssues(ok);
+  const issues = [...(s.siteChecks || []), ...siteIssues(ok)];
   $("site-issues").textContent = issues.length;
 
   for (const b of document.querySelectorAll("#site-filters button")) b.setAttribute("aria-pressed", String(b.dataset.area === state.siteArea));
@@ -786,7 +781,10 @@ function downloadReport(format) {
     const ok = s.pages.filter((p) => !p.error);
     if (format === "html") download(`site-aeo-report-${slug(s.origin)}-${stamp}.html`, siteReportHtml(s), "text/html");
     else {
-      const rows = ok.flatMap((p) => p.issues.map((c) => ({ ...c, url: p.url })));
+      const rows = [
+        ...(s.siteChecks || []).map((c) => ({ ...c, url: s.origin, detail: `${c.detail} Pages: ${c.pages.join(" ")}`, pagesAffected: c.pages.length })),
+        ...ok.flatMap((p) => p.issues.map((c) => ({ ...c, url: p.url }))),
+      ];
       download(`site-aeo-issues-${slug(s.origin)}-${stamp}.csv`, issuesCsv(rows), "text/csv");
     }
     return;

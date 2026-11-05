@@ -125,6 +125,13 @@ function sse() {
     await p.click('#filters button[data-area="a11y"]');
     console.log("a11y issues:", await p.$$eval("#issues .issue .issue-title", (n) => n.map((x) => x.textContent)));
     await p.click('#filters button[data-area="schema"]');
+    console.log("blockers:", await p.isVisible("#blockers") ? await p.textContent("#blockers") : "none", "| grade:", await p.textContent("#grade"));
+    await p.click('#filters button[data-area="tech"]');
+    console.log("technical issues:", await p.$$eval("#issues .issue .issue-title", (n) => n.map((x) => x.textContent)));
+    await p.click('#tabs button[data-tab="passed"]');
+    console.log("technical passed/info:", await p.$$eval("#issues .issue .issue-title", (n) => n.map((x) => x.textContent)));
+    await p.click('#tabs button[data-tab="open"]');
+    await p.click('#filters button[data-area="schema"]');
     console.log("schema & tag issues:", await p.$$eval("#issues .issue .issue-title", (n) => n.map((x) => x.textContent)));
     await p.click('#filters button[data-area="all"]');
 
@@ -157,6 +164,11 @@ function sse() {
     await p.screenshot({ path: path.join(OUT, "panel-crawling.png") });
     await p.waitForSelector("#site-summary:not([hidden])", { timeout: 120000 });
     console.log("site meta:", await p.textContent("#site-meta"));
+    await p.click('#site-filters button[data-area="tech"]');
+    console.log("site technical issues:", await p.$$eval("#site-issue-list .issue .issue-title", (n) => n.map((x) => x.textContent)));
+    await p.click('#site-filters button[data-area="schema"]');
+    console.log("site schema & tag issues:", await p.$$eval("#site-issue-list .issue .issue-title", (n) => n.map((x) => x.textContent)));
+    await p.click('#site-filters button[data-area="all"]');
     console.log("site scores:", await p.textContent("#site-score"), await p.textContent("#site-a11y"), await p.textContent("#site-issues"));
     console.log("site pages:", await p.$$eval("#site-pages button", (n) => n.map((b) => b.innerText.replace(/\s+/g, " "))));
     console.log("site issues (top 12):", await p.$$eval("#site-issue-list .issue", (n) => n.slice(0, 12).map((x) => x.querySelector(".issue-title").textContent + " | " + x.querySelector(".issue-detail").textContent.slice(0, 40))));

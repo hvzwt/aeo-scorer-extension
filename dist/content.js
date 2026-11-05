@@ -241,6 +241,16 @@
       faqLike: Array.from(document.querySelectorAll("details > summary")).length,
       faq: { heading: faqHeading ? clean(faqHeading.innerText) : null, headingSelector: faqHeading ? cssPath(faqHeading) : null, questions: questionNodes.slice(0, 50) },
       viewport: meta('meta[name="viewport"]'),
+      mixedContent: location.protocol === "https:" ? Array.from(document.querySelectorAll("img[src], script[src], link[rel=stylesheet][href], iframe[src], video[src], audio[src], source[src]")).filter((el) => /^http:\/\//i.test(el.getAttribute("src") || el.getAttribute("href") || "")).slice(0, 20).map((el) => ({ selector: cssPath(el), url: el.getAttribute("src") || el.getAttribute("href") })) : [],
+      videos: document.querySelectorAll('video, iframe[src*="youtube.com"], iframe[src*="youtube-nocookie.com"], iframe[src*="vimeo.com"], iframe[src*="wistia"]').length,
+      imageFormats: (() => {
+        const imgs = Array.from(document.images).filter((i) => (i.naturalWidth || 0) > 200);
+        const modern = imgs.filter((i) => /\.(webp|avif)(\?|$)/i.test(i.currentSrc || i.src) || /image\/(webp|avif)/.test(i.closest("picture")?.querySelector("source")?.type || ""));
+        const lazyCandidates = imgs.filter((i) => i.getBoundingClientRect().top > innerHeight * 1.5);
+        return { large: imgs.length, modern: modern.length, belowFold: lazyCandidates.length, belowFoldLazy: lazyCandidates.filter((i) => i.loading === "lazy").length, oversized: imgs.filter((i) => i.naturalWidth > 2 * Math.max(i.clientWidth, 1) && i.clientWidth > 0 && i.naturalWidth > 1600).slice(0, 10).map((i) => ({ selector: cssPath(i), natural: i.naturalWidth, shown: i.clientWidth })) };
+      })(),
+      consent: Array.from(document.scripts).some((sc) => /cookiebot|onetrust|cookielaw|cookieyes|usercentrics|didomi|iubenda|termly|osano|consentmanager|quantcast/i.test(sc.src || "")) || !!document.querySelector('[id*="onetrust"], [id*="cookiebot" i], [class*="cookie-consent"], [id*="cookie-banner"], [class*="cookie-banner"]'),
+      gtagConsent: Array.from(document.scripts).some((sc) => !sc.src && /gtag\(\s*['"]consent['"]/.test(sc.textContent || "")),
       charset: !!document.querySelector("meta[charset]") || /charset/i.test(meta('meta[http-equiv="Content-Type" i]') || ""),
       canonicalCount: document.querySelectorAll('link[rel="canonical"]').length,
       ogImage: meta('meta[property="og:image"]'),

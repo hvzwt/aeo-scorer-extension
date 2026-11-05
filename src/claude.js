@@ -204,3 +204,83 @@ export function describeError(err) {
   if (err instanceof Anthropic.APIError) return `Anthropic API error ${err.status ?? ""}: ${err.message}`;
   return String(err?.message || err);
 }
+
+// ---------------------------------------------------------------------------
+// AI brief: Claude writes the concrete code changes for each failing issue.
+
+export const BRIEF_SYSTEM = `You write fix briefs that a developer pastes into a coding agent (Claude Code, Cursor, Copilot). You receive a page's failing AEO/GEO, schema, technical and accessibility checks, the page's <head>, the HTML of the elements involved, and the detected site stack. Write the brief in Markdown.
+
+Structure:
+# AEO fix brief: <page title>
+One paragraph: the page URL, the stack, the current scores, and the order to work in.
+## Context for the agent
+3–6 bullets: what AEO/GEO means for this page, the rule that structured data must match visible content, never invent facts, and "keep changes minimal and server-rendered".
+## Fixes
+One "### n. <short imperative title>" per issue, most important first (blockers and critical first; group issues that share one change, e.g. all head tags). For each:
+- **Why:** one sentence.
+- **Where:** the element or file most likely involved. For known stacks, name the usual file (Next.js App Router: app/**/page.tsx + generateMetadata, app/layout.tsx; Next.js Pages Router: pages/*.tsx + next/head; WordPress: theme header.php / an SEO plugin setting; Webflow: Page settings > Custom code; Shopify: theme.liquid / section files). Say "likely" when you are inferring.
+- **Change:** a fenced code block with the exact new code (HTML, JSX, Liquid, header config or robots.txt). Base it on the real HTML you were given. Use [placeholders] for facts you do not know; never invent statistics, quotes, names, ratings or URLs.
+- **Done when:** the check that will pass in AEO Scorer after the change.
+## Content rewrites
+Only if the input includes Claude content findings: the paste-ready rewrites.
+## Checklist
+A "- [ ]" list of every fix title.
+
+Be specific and short. Skip informational notes. Write in English unless the page language is different, in which case write prose in English but keep page copy in the page's language.`;
+
+export async function streamText({ apiKey, model, effort, system, user, onProgress, signal, maxTokens = 32000 }) {
+  const client = new Anthropic({ apiKey, dangerouslyAllowBrowser: true, maxRetries: 2 });
+  const modelInfo = MODELS.find((m) => m.id === model) || MODELS[0];
+  const base = {
+    model: modelInfo.id,
+    max_tokens: maxTokens,
+    system: [{ type: "text", text: system, cache_control: { type: "ephemeral" } }],
+    messages: [{ role: "user", content: user }],
+    output_config: { effort: effort || "low" },
+  };
+  const run = async (withFallbacks) => {
+    const params = withFallbacks ? { ...base, betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" } : base;
+    const stream = withFallbacks ? client.beta.messages.stream(params, { signal }) : client.messages.stream(params, { signal });
+    let chars = 0;
+    stream.on("text", (d) => {
+      chars += d.length;
+      onProgress?.(chars);
+    });
+    return stream.finalMessage();
+  };
+  let message;
+  try {
+    message = await run(modelInfo.fallbacks);
+  } catch (err) {
+    if (modelInfo.fallbacks && err instanceof Anthropic.BadRequestError && /fallback/i.test(String(err.message))) message = await run(false);
+    else throw err;
+  }
+  if (message.stop_reason === "refusal") throw new Error("Claude declined this request.");
+  const text = message.content.filter((b) => b.type === "text").map((b) => b.text).join("");
+  if (message.stop_reason === "max_tokens") return { text: text + "\n\n_(Brief was cut off at the length limit.)_", usage: message.usage, model: message.model };
+  return { text, usage: message.usage, model: message.model };
+}
+
+export function buildBriefInput({ url, title, stack, result, a11y, ai, html }) {
+  const failing = [...result.checks, ...(a11y?.checks || [])].filter((c) => !c.pass && c.severity !== "info");
+  const issues = failing.map((c) => ({
+    id: c.id,
+    severity: c.severity,
+    blocker: !!c.blocker,
+    area: c.category,
+    title: c.title,
+    detail: c.detail,
+    suggested_fix: c.fix,
+    wcag: c.wcag,
+    elements: (c.items?.length ? c.items.map((i) => i.selector) : c.selector ? [c.selector] : []).slice(0, 5).map((sel) => ({ selector: sel, html: html?.elements?.[sel] || null })),
+  }));
+  return [
+    `<page url="${url}" title="${(title || "").replace(/"/g, "'")}" stack="${(stack || []).join(", ") || "unknown"}" aeo_score="${result.score}" grade="${result.grade}" accessibility_score="${a11y?.score ?? "n/a"}" />`,
+    `<failing_checks>\n${JSON.stringify(issues)}\n</failing_checks>`,
+    ai?.review ? `<claude_content_findings>\n${JSON.stringify({ findings: ai.review.findings, suggested_json_ld: ai.review.suggested_json_ld })}\n</claude_content_findings>` : "",
+    `<head_html>\n${html?.head || ""}\n</head_html>`,
+    "Write the fix brief.",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}

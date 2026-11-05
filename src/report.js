@@ -156,3 +156,50 @@ export function download(filename, content, type) {
 export function slug(s) {
   return String(s).replace(/^https?:\/\//, "").replace(/[^a-z0-9]+/gi, "-").replace(/^-|-$/g, "").slice(0, 60).toLowerCase();
 }
+
+// ---------------------------------------------------------------------------
+// Markdown "AI brief" for coding agents (no AI needed; Claude can enrich it).
+
+function mdIssue(c, n) {
+  const where = c.items?.length ? c.items.slice(0, 5).map((i) => `\`${i.selector}\``).join(", ") : c.selector ? `\`${c.selector}\`` : "page-wide";
+  const lines = [
+    `### ${n}. ${c.title}${c.blocker ? " (blocker)" : ""}`,
+    `- **Severity:** ${c.severity}${c.wcag?.length ? ` · WCAG ${c.wcag.join(", ")} (${c.level})` : ""}${c.section ? ` · guide §${c.section}` : ""}`,
+    `- **Problem:** ${c.detail}`,
+    `- **Where:** ${where}${c.nodeCount > 5 ? ` and ${c.nodeCount - 5} more` : ""}`,
+    `- **Fix:** ${c.fix}`,
+  ];
+  if (c.suggested) lines.push("", "```", c.suggested, "```");
+  if (c.pages) lines.push(`- **Pages (${c.pages.length}):** ${c.pages.slice(0, 15).join(", ")}${c.pages.length > 15 ? " …" : ""}`);
+  lines.push(`- **Done when:** AEO Scorer shows "${c.title}" as passing.`);
+  return lines.join("\n");
+}
+
+const BRIEF_CONTEXT = `## Context for the agent
+- Goal: make this page easy for answer engines (Google AI Overviews, ChatGPT search, Perplexity, Copilot, Claude) to crawl, quote and cite, and accessible to everyone.
+- Keep content server-rendered: AI crawlers often do not run JavaScript.
+- Structured data must match what the page visibly shows. Never invent statistics, quotes, ratings, names or URLs; leave [placeholders].
+- Make the smallest change that fixes each issue, and keep the existing design.`;
+
+export function briefMarkdown({ url, title, stack, result, a11y, ai }) {
+  const failing = [...result.checks, ...(a11y?.checks || [])].filter((c) => !c.pass && c.severity !== "info");
+  failing.sort((a, b) => (b.blocker ? 1 : 0) - (a.blocker ? 1 : 0) || SEV_ORDER[a.severity] - SEV_ORDER[b.severity]);
+  const aiFindings = ai?.review?.findings || [];
+  let md = `# AEO fix brief: ${title || url}\n\n- Page: ${url}\n- Stack: ${(stack || []).join(", ") || "not detected"}\n- AEO score: ${result.score}/100 (${result.grade})${result.blockers?.length ? `, capped by blockers: ${result.blockers.join("; ")}` : ""}\n- Accessibility: ${a11y ? `${a11y.score}/100` : "not run"}\n- Generated: ${new Date().toISOString()}\n\n${BRIEF_CONTEXT}\n\n## Fixes (${failing.length})\n\nWork top to bottom: blockers first, then critical, major, minor.\n\n`;
+  md += failing.map((c, i) => mdIssue(c, i + 1)).join("\n\n");
+  if (aiFindings.length) {
+    md += `\n\n## Content rewrites from Claude\n\n` + aiFindings.map((f, i) => mdIssue({ title: f.title, severity: f.severity, detail: f.problem, fix: f.fix, suggested: f.suggested_text }, i + 1)).join("\n\n");
+    if (ai.review.suggested_json_ld) md += `\n\n### Suggested JSON-LD\n\n\`\`\`json\n${ai.review.suggested_json_ld}\n\`\`\``;
+  }
+  md += `\n\n## Checklist\n\n${failing.map((c) => `- [ ] ${c.title}`).join("\n")}\n`;
+  return md;
+}
+
+export function siteBriefMarkdown(site) {
+  const ok = site.pages.filter((p) => !p.error);
+  const issues = [...(site.siteChecks || []), ...siteIssues(ok)];
+  let md = `# Site AEO fix brief: ${site.origin}\n\n${ok.length} pages crawled from ${site.startUrl}\n\n- Average AEO score: ${site.avgScore}/100\n- Average accessibility: ${site.avgA11y ?? "n/a"}\n- Generated: ${new Date().toISOString()}\n\n${BRIEF_CONTEXT}\n- Issues on many pages usually live in a shared layout, template or component: fix them there once.\n\n## Fixes (${issues.length})\n\n`;
+  md += issues.map((c, i) => mdIssue(c, i + 1)).join("\n\n");
+  md += `\n\n## Checklist\n\n${issues.map((c) => `- [ ] ${c.title} (${c.pages.length} pages)`).join("\n")}\n`;
+  return md;
+}

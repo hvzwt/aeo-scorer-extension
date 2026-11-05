@@ -20,8 +20,7 @@ const review = {
   suggested_json_ld: "{\"@context\":\"https://schema.org\",\"@type\":\"TechArticle\",\"headline\":\"Schema markup Next.js\"}",
 };
 
-function sse() {
-  const text = JSON.stringify(review);
+function sse(text = JSON.stringify(review)) {
   const ev = (type, data) => `event: ${type}\ndata: ${JSON.stringify({ type, ...data })}\n\n`;
   return (
     ev("message_start", { message: { id: "msg_test", type: "message", role: "assistant", model: "claude-opus-5-5", content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 5200, output_tokens: 1, cache_read_input_tokens: 2100, cache_creation_input_tokens: 0 } } }) +
@@ -46,7 +45,7 @@ function sse() {
   let apiRequest = null;
   await ctx.route("https://api.anthropic.com/**", async (route) => {
     apiRequest = { headers: route.request().headers(), body: JSON.parse(route.request().postData() || "{}"), url: route.request().url() };
-    await route.fulfill({ status: 200, headers: { "content-type": "text/event-stream" }, body: sse() });
+    await route.fulfill({ status: 200, headers: { "content-type": "text/event-stream" }, body: apiRequest.body.output_config?.format ? sse() : sse("# AEO fix brief: Schema\n\n### 1. Add a lang attribute\n```html\n<html lang=\"en\">\n```") });
   });
   try {
     let [sw] = ctx.serviceWorkers();
@@ -148,6 +147,11 @@ function sse() {
     const html = await grab("html", "page-report.html");
     console.log("  report has accessibility section:", html.includes("Accessibility ("), "claude section:", html.includes("Claude review"));
     const csv = await grab("csv", "page-issues.csv");
+    const brief = await grab("brief", "page-brief.md");
+    console.log("  brief head:", brief.split("\n").slice(0, 6).join(" | "));
+    console.log("  brief fixes:", (brief.match(/^### /gm) || []).length);
+    const aiBrief = await grab("brief-ai", "page-brief-claude.md");
+    console.log("  claude brief:", aiBrief.split("\n").slice(0, 3).join(" | "), "| last request had format:", !!apiRequest.body.output_config?.format, "| user chars:", apiRequest.body.messages[0].content.length);
     console.log("  csv rows:", csv.trim().split(/\r\n/).length - 1, "| header:", csv.split(/\r\n/)[0].slice(1));
 
     // close -> home
@@ -175,6 +179,8 @@ function sse() {
     await p.screenshot({ path: path.join(OUT, "panel-site.png"), fullPage: true });
     const shtml = await grab("html", "site-report.html");
     const scsv = await grab("csv", "site-issues.csv");
+    const sbrief = await grab("brief", "site-brief.md");
+    console.log("  site brief fixes:", (sbrief.match(/^### /gm) || []).length);
     console.log("  site csv rows:", scsv.trim().split(/\r\n/).length - 1);
 
     // open a page from the site report, then go back

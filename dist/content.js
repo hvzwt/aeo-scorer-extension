@@ -241,6 +241,24 @@
       faqLike: Array.from(document.querySelectorAll("details > summary")).length,
       faq: { heading: faqHeading ? clean(faqHeading.innerText) : null, headingSelector: faqHeading ? cssPath(faqHeading) : null, questions: questionNodes.slice(0, 50) },
       viewport: meta('meta[name="viewport"]'),
+      stack: (() => {
+        const found = [];
+        const has = (sel) => !!document.querySelector(sel);
+        const src = Array.from(document.scripts).map((x) => x.src).join(" ");
+        if (has("#__next, script#__NEXT_DATA__") || /\/_next\//.test(src)) found.push("Next.js");
+        if (has("#__nuxt, #__NUXT__") || /\/_nuxt\//.test(src)) found.push("Nuxt");
+        if (has("#___gatsby")) found.push("Gatsby");
+        if (has("[data-astro-cid], astro-island")) found.push("Astro");
+        if (/wp-content|wp-includes/.test(document.documentElement.innerHTML.slice(0, 200000))) found.push("WordPress");
+        if (has("html[data-wf-site]")) found.push("Webflow");
+        if (/cdn\.shopify\.com/.test(src) || window.Shopify) found.push("Shopify");
+        if (has('meta[name="generator"][content*="Wix" i]')) found.push("Wix");
+        if (has('meta[name="generator"][content*="Squarespace" i]')) found.push("Squarespace");
+        if (has("[data-reactroot], #root") && !found.length) found.push("React");
+        const gen = meta('meta[name="generator"]');
+        if (gen && !found.some((f) => gen.toLowerCase().includes(f.toLowerCase()))) found.push(gen);
+        return found;
+      })(),
       mixedContent: location.protocol === "https:" ? Array.from(document.querySelectorAll("img[src], script[src], link[rel=stylesheet][href], iframe[src], video[src], audio[src], source[src]")).filter((el) => /^http:\/\//i.test(el.getAttribute("src") || el.getAttribute("href") || "")).slice(0, 20).map((el) => ({ selector: cssPath(el), url: el.getAttribute("src") || el.getAttribute("href") })) : [],
       videos: document.querySelectorAll('video, iframe[src*="youtube.com"], iframe[src*="youtube-nocookie.com"], iframe[src*="vimeo.com"], iframe[src*="wistia"]').length,
       imageFormats: (() => {
@@ -346,6 +364,17 @@
         clearHighlights();
         sendResponse({ ok: true });
       } else if (msg?.type === "aeo:ping") sendResponse({ ok: true });
+      else if (msg?.type === "aeo:html") {
+        const head = document.head ? document.head.outerHTML.replace(/<script\b(?![^>]*ld\+json)[^>]*>[\s\S]*?<\/script>/gi, "<script>…</script>").replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, "<style>…</style>").slice(0, 8000) : "";
+        const elements = {};
+        for (const sel of (msg.selectors || []).slice(0, 60)) {
+          try {
+            const el = document.querySelector(sel);
+            if (el) elements[sel] = el.outerHTML.replace(/\s+/g, " ").slice(0, 700);
+          } catch {}
+        }
+        sendResponse({ ok: true, head, elements });
+      }
     } catch (e) {
       sendResponse({ ok: false, error: String(e?.message || e) });
     }

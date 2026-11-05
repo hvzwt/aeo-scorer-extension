@@ -4,7 +4,7 @@ A Chrome side panel that scores a page or a whole site for Answer Engine Optimiz
 
 ## Install (load unpacked)
 
-1. Unzip `aeo-scorer-0.3.0.zip` (or run `npm install && npm run build` and use `dist/`).
+1. Unzip `aeo-scorer-0.4.0.zip` (or run `npm install && npm run build` and use `dist/`).
 2. Open `chrome://extensions`, turn on **Developer mode**, click **Load unpacked**, and pick the unzipped folder.
 3. Pin the extension and click its icon. The panel opens on the right and stays open while you reload or navigate.
 
@@ -21,6 +21,7 @@ A Chrome side panel that scores a page or a whole site for Answer Engine Optimiz
 - **Technical & security.** HTTPS and HTTP→HTTPS redirect, HSTS and other security headers, caching headers, server response time and compression, soft 404s, sitemap.xml, security.txt, mixed content, image formats, sizes and lazy loading, URL structure, CDN/firewall detection, cookie consent, and email records (SPF, DMARC, DKIM at common selectors, MTA-STS) via Google DNS-over-HTTPS.
 - **Site-wide checks in a crawl.** Duplicate titles and descriptions, one-way hreflang links and canonicals pointing at broken pages.
 - **Reports.** The download button exports an HTML report (opens in any browser, prints to PDF) or a CSV with one row per issue, for the page or the whole site.
+- **AI brief.** A Markdown fix list to paste into Claude Code, Cursor or Copilot: every failing issue with where it is, the fix and a "done when" test. With an API key, "AI brief with code fixes written by Claude" reads the real page HTML and detected stack (Next.js, WordPress, Webflow, Shopify and more) and writes the exact code change per issue.
 
 ## Claude details
 

@@ -1,8 +1,8 @@
 import { scorePage, diffRuns, hashKey, CATEGORIES, AREAS, A11Y_GROUPS, areaOf, scoreAccessibility, siteWideChecks } from "./rules.js";
-import { MODELS, askClaude, estimateCost, describeError } from "./claude.js";
+import { MODELS, askClaude, estimateCost, describeError, streamText, BRIEF_SYSTEM, buildBriefInput } from "./claude.js";
 import { crawlSite, normalizeUrl } from "./crawler.js";
 import { fetchInfo, originTech } from "./tech.js";
-import { pageReportHtml, siteReportHtml, siteIssues, issuesCsv, download, slug } from "./report.js";
+import { pageReportHtml, siteReportHtml, siteIssues, issuesCsv, download, slug, briefMarkdown, siteBriefMarkdown } from "./report.js";
 
 const $ = (id) => document.getElementById(id);
 const params = new URLSearchParams(location.search);
@@ -209,6 +209,7 @@ async function scanPage({ reason = "manual" } = {}) {
       url: snap.url,
       title: snap.title,
       host: snap.host,
+      stack: snap.stack,
       checks: checks.map(({ id, pass, severity, title, category }) => ({ id, pass, severity, title, category })),
       score: result.score,
       a11yScore: a11y?.score ?? null,
@@ -686,6 +687,7 @@ async function startCrawl(startUrl) {
           url: snap.url,
           title: snap.title,
           host: snap.host,
+          stack: snap.stack,
           checks: checks.map(({ id, pass, severity, title, category }) => ({ id, pass, severity, title, category })),
           score: result.score,
           a11yScore: a11y?.score ?? null,
@@ -774,12 +776,13 @@ function renderSite() {
 
 // ---------------------------------------------------------------- downloads
 
-function downloadReport(format) {
+async function downloadReport(format) {
   const stamp = new Date().toISOString().slice(0, 10);
   if (state.mode === "site" && state.site) {
     const s = state.site;
     const ok = s.pages.filter((p) => !p.error);
-    if (format === "html") download(`site-aeo-report-${slug(s.origin)}-${stamp}.html`, siteReportHtml(s), "text/html");
+    if (format === "brief" || format === "brief-ai") download(`site-aeo-brief-${slug(s.origin)}-${stamp}.md`, siteBriefMarkdown(s), "text/markdown");
+    else if (format === "html") download(`site-aeo-report-${slug(s.origin)}-${stamp}.html`, siteReportHtml(s), "text/html");
     else {
       const rows = [
         ...(s.siteChecks || []).map((c) => ({ ...c, url: s.origin, detail: `${c.detail} Pages: ${c.pages.join(" ")}`, pagesAffected: c.pages.length })),
@@ -791,7 +794,12 @@ function downloadReport(format) {
   }
   const p = state.page;
   if (!p?.result) return;
-  if (format === "html") {
+  const briefArgs = { url: p.url, title: p.run.title, stack: p.run.stack || p.snap?.stack, result: p.result, a11y: p.a11y, ai: p.run.ai };
+  if (format === "brief") {
+    download(`aeo-brief-${slug(p.url)}-${stamp}.md`, briefMarkdown(briefArgs), "text/markdown");
+  } else if (format === "brief-ai") {
+    await claudeBrief(briefArgs, stamp);
+  } else if (format === "html") {
     download(`aeo-report-${slug(p.url)}-${stamp}.html`, pageReportHtml({ url: p.url, title: p.run.title, result: p.result, a11y: p.a11y, ai: p.run.ai, at: p.run.at }), "text/html");
   } else {
     const rows = [
@@ -801,6 +809,45 @@ function downloadReport(format) {
         .map((c) => ({ ...c, url: p.url })),
     ];
     download(`aeo-issues-${slug(p.url)}-${stamp}.csv`, issuesCsv(rows), "text/csv");
+  }
+}
+
+async function claudeBrief(args, stamp) {
+  const p = state.page;
+  if (!state.settings.apiKey) return openSettings();
+  if (!p.live || !p.tabId) return flash("Open the page and re-scan it live to write code fixes.");
+  if (state.claudeAbort) return;
+  const ctrl = new AbortController();
+  state.claudeAbort = ctrl;
+  const body = $("claude-body");
+  const status = (t) => body.replaceChildren(Object.assign(document.createElement("p"), { className: "muted", textContent: t }));
+  $("btn-claude").textContent = "Cancel";
+  status("Collecting the page HTML…");
+  $("claude").scrollIntoView({ behavior: "smooth", block: "start" });
+  try {
+    const failing = [...p.result.checks, ...(p.a11y?.checks || [])].filter((c) => !c.pass && c.severity !== "info");
+    const selectors = [...new Set(failing.flatMap((c) => (c.items?.length ? c.items.map((i) => i.selector) : c.selector ? [c.selector] : []).slice(0, 5)))];
+    const html = await send(p.tabId, { type: "aeo:html", selectors });
+    status("Claude is writing the code fixes…");
+    const { text, usage, model } = await streamText({
+      apiKey: state.settings.apiKey,
+      model: state.settings.model,
+      effort: state.settings.effort,
+      system: BRIEF_SYSTEM,
+      user: buildBriefInput({ ...args, html }),
+      signal: ctrl.signal,
+      onProgress: (n) => status(`Claude is writing the code fixes… ${(n / 1000).toFixed(1)}k characters`),
+    });
+    const cost = estimateCost(model, usage);
+    const footer = `\n\n---\n_Written by ${model} from an AEO Scorer scan of ${p.url} on ${new Date().toLocaleString()}. Review before applying._\n`;
+    download(`aeo-brief-claude-${slug(p.url)}-${stamp}.md`, text + footer, "text/markdown");
+    p.run.aiError = null;
+    flash(`Brief downloaded${cost != null ? ` (about $${cost.toFixed(3)})` : ""}.`);
+  } catch (e) {
+    p.run.aiError = describeError(e);
+  } finally {
+    state.claudeAbort = null;
+    if (state.page === p) renderClaude();
   }
 }
 
@@ -903,6 +950,7 @@ $("btn-back-site").onclick = () => state.site && renderSite();
 $("btn-open-live").onclick = () => state.page?.url && openAndScan(state.page.url);
 $("btn-download").onclick = (e) => {
   e.stopPropagation();
+  $("menu-brief-ai").hidden = !(state.mode === "page" && state.page?.live);
   $("download-menu").hidden = !$("download-menu").hidden;
 };
 for (const b of document.querySelectorAll("#download-menu button")) {

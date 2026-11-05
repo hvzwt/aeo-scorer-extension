@@ -1,0 +1,10 @@
+User-agent: *
+Allow: /
+
+User-agent: PerplexityBot
+Disallow: /
+
+User-agent: GPTBot
+Disallow: /
+
+Sitemap: http://localhost:8765/sitemap.xml

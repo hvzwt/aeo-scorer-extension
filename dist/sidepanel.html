@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AEO Scorer</title>
+  <link rel="stylesheet" href="sidepanel.css">
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <img src="icons/icon32.png" alt="" width="20" height="20">
+      <span>AEO Scorer</span>
+    </div>
+    <div class="top-actions">
+      <button id="btn-rescan" class="icon-btn" title="Re-scan this page" aria-label="Re-scan">
+        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M17.65 6.35A7.96 7.96 0 0 0 12 4a8 8 0 1 0 7.73 10h-2.08A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
+      </button>
+      <button id="btn-settings" class="icon-btn" title="Settings" aria-label="Settings">
+        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M19.14 12.94a7.07 7.07 0 0 0 0-1.88l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.03 7.03 0 0 0-1.63-.94l-.36-2.54A.5.5 0 0 0 13.9 2h-3.8a.5.5 0 0 0-.49.42l-.36 2.54c-.59.24-1.13.56-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.71 8.48a.5.5 0 0 0 .12.64l2.03 1.58a7.07 7.07 0 0 0 0 1.88l-2.03 1.58a.5.5 0 0 0-.12.64l1.92 3.32c.13.22.39.3.6.22l2.39-.96c.5.38 1.04.7 1.63.94l.36 2.54c.05.24.25.42.49.42h3.8c.24 0 .45-.18.49-.42l.36-2.54c.59-.24 1.13-.56 1.63-.94l2.39.96c.22.08.47 0 .6-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58zM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7z"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <main id="view-main">
+    <section id="state-msg" class="state" hidden></section>
+
+    <section id="summary" class="summary" hidden>
+      <div class="score-wrap">
+        <svg class="ring" viewBox="0 0 120 120" aria-hidden="true">
+          <circle cx="60" cy="60" r="52" class="ring-bg"/>
+          <circle cx="60" cy="60" r="52" class="ring-fg" id="ring-fg"/>
+        </svg>
+        <div class="score-text">
+          <div id="score" class="score">–</div>
+          <div id="grade" class="grade"></div>
+        </div>
+      </div>
+      <div class="page-meta">
+        <div id="page-host" class="host"></div>
+        <div id="page-title" class="ptitle"></div>
+        <div id="scanned-at" class="muted small"></div>
+        <label class="toggle"><input type="checkbox" id="toggle-highlight"> Highlight issues on page</label>
+      </div>
+    </section>
+
+    <section id="recheck" class="recheck" hidden></section>
+
+    <section id="categories" class="categories" hidden></section>
+
+    <section id="claude" class="claude" hidden>
+      <div class="claude-head">
+        <div>
+          <h2>Claude review</h2>
+          <p id="claude-sub" class="muted small">Checks whether the content really answers its questions and writes the fixes.</p>
+        </div>
+        <button id="btn-claude" class="primary">Ask Claude</button>
+      </div>
+      <div id="claude-body"></div>
+    </section>
+
+    <nav id="tabs" class="tabs" hidden role="tablist">
+      <button role="tab" data-tab="open" aria-selected="true">To fix <span id="count-open"></span></button>
+      <button role="tab" data-tab="marked" aria-selected="false">Marked fixed <span id="count-marked"></span></button>
+      <button role="tab" data-tab="passed" aria-selected="false">Passed <span id="count-passed"></span></button>
+    </nav>
+    <section id="issues" class="issues"></section>
+  </main>
+
+  <main id="view-settings" hidden>
+    <h2>Settings</h2>
+    <label class="field">
+      <span>Anthropic API key</span>
+      <input id="set-key" type="password" placeholder="sk-ant-…" autocomplete="off" spellcheck="false">
+    </label>
+    <p class="muted small">Stored only in this browser (chrome.storage.local) and sent only to api.anthropic.com. Anyone with access to this Chrome profile can read it. Create a key at console.anthropic.com.</p>
+    <label class="field">
+      <span>Model</span>
+      <select id="set-model"></select>
+    </label>
+    <label class="field">
+      <span>Effort</span>
+      <select id="set-effort">
+        <option value="low">Low (fast, cheapest)</option>
+        <option value="medium">Medium</option>
+        <option value="high">High (most thorough)</option>
+      </select>
+    </label>
+    <div class="row">
+      <button id="btn-save" class="primary">Save</button>
+      <button id="btn-clear-key">Remove key</button>
+      <button id="btn-back">Back</button>
+    </div>
+    <p id="set-status" class="muted small" role="status"></p>
+    <hr>
+    <p class="muted small">Scoring rules follow "AEO &amp; GEO: A Developer's Implementation Guide" (Nov 2026). There is no standard AEO score; this one weights crawler access 25%, structure 20%, answer-first content 20%, head tags 15%, structured data 10% and trust signals 10%.</p>
+    <button id="btn-reset-history">Clear saved scan history</button>
+  </main>
+
+  <template id="tpl-issue">
+    <article class="issue">
+      <div class="issue-head">
+        <span class="sev"></span>
+        <h3 class="issue-title"></h3>
+      </div>
+      <p class="issue-detail"></p>
+      <details class="issue-fix"><summary>How to fix</summary><p class="fix-text"></p><pre class="suggest" hidden></pre></details>
+      <div class="issue-actions">
+        <span class="chips"></span>
+        <button class="btn-show small-btn">Show on page</button>
+        <button class="btn-copy small-btn" hidden>Copy text</button>
+        <button class="btn-mark small-btn">Mark fixed</button>
+      </div>
+    </article>
+  </template>
+
+  <script type="module" src="sidepanel.js"></script>
+</body>
+</html>

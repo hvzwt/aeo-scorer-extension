@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>How to Add Schema Markup in Next.js (2026 Guide)</title>
+  <meta name="description" content="Add JSON-LD to a Next.js App Router page in 3 steps, then validate it with Google's Rich Results Test before you deploy.">
+  <link rel="canonical" href="http://localhost:8765/guides/good.html">
+  <meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large">
+  <meta property="og:title" content="How to Add Schema Markup in Next.js">
+  <meta property="og:type" content="article">
+  <meta property="article:modified_time" content="2026-11-05T09:00:00Z">
+  <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"Organization","@id":"http://localhost:8765/#org","name":"Example Ltd","url":"http://localhost:8765"},{"@type":"Person","@id":"http://localhost:8765/team/priya#person","name":"Priya Shah"},{"@type":"TechArticle","headline":"How to add schema markup to a Next.js page","author":{"@id":"http://localhost:8765/team/priya#person"},"publisher":{"@id":"http://localhost:8765/#org"},"datePublished":"2026-10-01","dateModified":"2026-11-05"},{"@type":"BreadcrumbList","itemListElement":[{"@type":"ListItem","position":1,"name":"Home","item":"http://localhost:8765/"},{"@type":"ListItem","position":2,"name":"Guides"}]}]}</script>
+</head>
+<body>
+<header><nav aria-label="Main"><a href="/">Home</a></nav></header>
+<main><article>
+<header>
+<h1>How do I add schema markup to a Next.js page?</h1>
+<p>By <a href="/team/priya" rel="author">Priya Shah</a> · Updated <time datetime="2026-11-05">5 Nov 2026</time></p>
+</header>
+<p>Render a JSON-LD script tag inside the page component, fill it from the same data the page displays, and check it with Google's Rich Results Test before you deploy. The whole change takes three steps and needs no extra library.</p>
+<section>
+<h2>What is the quickest way to add JSON-LD in Next.js?</h2>
+<p>Render a JSON-LD script tag inside the page component, fill it from the same data the page displays, and check it with Google's Rich Results Test. Google recommends JSON-LD because it stays separate from the HTML, and in the GEO study pages that cited sources gained up to 40% visibility.</p>
+<ol><li>Load the page data.</li><li>Build the JSON-LD object.</li><li>Render the script tag.</li></ol>
+</section>
+<section>
+<h2>Why does structured data matter for AI answers?</h2>
+<p>Structured data tells parsers who wrote the page, what it is and when it changed. Organic CTR fell 61% when AI Overviews appeared, according to <a href="https://seerinteractive.com/insights/aio-impact-on-google-ctr-september-2025-update">Seer Interactive</a>, so being a cited source matters more than before.</p>
+<blockquote cite="https://developers.google.com/search/docs/appearance/ai-features"><p>"You don't need to create new machine readable files or special schema to appear in AI features."</p></blockquote>
+<table><caption>Schema types</caption><tr><th scope="col">Type</th><th scope="col">Use</th></tr><tr><td>Article</td><td>Guides</td></tr></table>
+<img src="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='100'><rect width='200' height='100' fill='teal'/></svg>" alt="Diagram of a JSON-LD graph" width="200" height="100">
+</section>
+<aside><h2>Sources</h2><ul><li><cite><a href="https://developers.google.com/search/docs/appearance/structured-data/intro-structured-data">Google Search Central: Intro to structured data</a></cite></li><li><a href="https://arxiv.org/abs/2311.09735">GEO paper</a></li></ul></aside>
+<p>Next.js App Router server components render this markup into the HTML response, which is what AI crawlers that do not run JavaScript read. That is why server rendering is the safe default for guides, docs and product pages. Each section above starts with a sentence that answers its heading so retrieval systems can quote it on its own. The page also links to the primary sources it relies on, quotes the official documentation, and shows a named author and a visible updated date that match the structured data, which keeps the markup honest and consistent with the visible content.</p>
+</article></main>
+<footer>© Example Ltd</footer>
+</body></html>

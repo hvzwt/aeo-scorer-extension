@@ -103,6 +103,7 @@ const bad = fs.readFileSync(path.join(SITE, "bad.html"), "utf8");
     console.log("why:", (await t("#comp-why")).slice(0, 300));
     const whyReq = requests.at(-1);
     console.log("why request: format", whyReq.output_config?.format?.type, "| input has rule gaps:", /<rule_gaps>/.test(whyReq.messages[0].content), "| chars", whyReq.messages[0].content.length);
+    await p.waitForTimeout(500);
     await p.screenshot({ path: path.join(OUT, "comp-report.png"), fullPage: true });
 
     const grab = async (fmt, name) => {

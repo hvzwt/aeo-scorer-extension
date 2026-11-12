@@ -455,10 +455,11 @@ function promptCard({ pr, rs, st }) {
       b.onclick = () => ctx.openAndScan(compUrl);
       actions.append(b);
     }
-    const mine = document.createElement("button");
+const mine = document.createElement("button");
     mine.className = "small-btn";
-    mine.textContent = "Scan my site";
-    mine.onclick = () => ctx.openAndScan(`https://${p.domain}/`);
+    mine.textContent = "Compare with competitors";
+    mine.title = "Score your site against the pages AI cited for this prompt and see why they win";
+    mine.onclick = () => ctx.compare({ url: `https://${p.domain}/`, questions: [pr.text], manual: [...new Set(rs.flatMap((r) => (r.citations || []).map((c) => c.url)).filter((u) => p.competitors.some((c) => c.domain && hostOf(u).endsWith(c.domain))))].slice(0, 3) });
     actions.append(mine);
   }
   el.append(actions);

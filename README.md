@@ -1,6 +1,6 @@
 # AEO Scorer (Chrome extension)
 
-A Chrome side panel that scores a page or a whole site for Answer Engine Optimization (AEO), Generative Engine Optimization (GEO), schema and accessibility. It highlights the problems on the page, re-checks them after you fix them, exports reports to share with your team, and tracks whether AI answers mention your brand and cite your site. The rules follow "AEO & GEO: A Developer's Implementation Guide" (Nov 2026).
+A Chrome side panel that scores a page or a whole site for Answer Engine Optimization (AEO), Generative Engine Optimization (GEO), schema and accessibility. It highlights the problems on the page, re-checks them after you fix them, exports reports to share with your team, tracks whether AI answers mention your brand and cite your site, and shows which competitor pages AI ranks above yours and why. The rules follow "AEO & GEO: A Developer's Implementation Guide" (Nov 2026).
 
 ## Install (load unpacked)
 
@@ -22,6 +22,18 @@ A Chrome side panel that scores a page or a whole site for Answer Engine Optimiz
 - **Site-wide checks in a crawl.** Duplicate titles and descriptions, one-way hreflang links and canonicals pointing at broken pages.
 - **Reports.** The download button exports an HTML report (opens in any browser, prints to PDF) or a CSV with one row per issue, for the page or the whole site.
 - **AI brief.** A Markdown fix list to paste into Claude Code, Cursor or Copilot: every failing issue with where it is, the fix and a "done when" test. With an API key, "AI brief with code fixes written by Claude" reads the real page HTML and detected stack (Next.js, WordPress, Webflow, Shopify and more) and writes the exact code change per issue.
+
+## Competitor analysis
+
+Open it from the start screen (**Analyze competitors**), from a page report (**Compare with competitors**), or from a gap in the visibility tracker.
+
+- **Find who ranks above you.** Enter your page and up to 5 questions it should win. Claude asks each question with live web search, and the pages AI cites become the competitors (one page per site; search engines, social and video sites are skipped). You can add competitor URLs yourself, and without an API key the competitors come from your tracker results.
+- **Same rules for everyone.** Your page and up to 8 competitor pages open one by one in a background tab and get the full AEO, GEO, schema, technical and accessibility scan. Each competitor's full report is saved, so you can open it from the ranking.
+- **Ranking.** Pages are ordered by AI citations first (the GEO outcome) and AEO score second, with your position called out.
+- **Why they rank higher.** Checks most competitors pass and you fail, ordered by how many pass, severity and how much that area matters for citations, each with the fix. Schema types they use that you don't. Content signals against the competitor median: words, sections, question headings, FAQs, statistics, source links, quotes, tables, lists, freshness, named author and a direct answer. Area scores (you, median, best) and where you are ahead.
+- **Explain with Claude.** Claude reads your page and theirs, the AI answers and the gaps, and returns the reasons (with which competitors each applies to and the impact) and an ordered action plan.
+- **Exports.** Competitor report (HTML) and comparison (CSV).
+- **Cost.** About $0.03 per question for discovery plus a few cents for the explanation on Opus 5.5.
 
 ## AI visibility tracker
 
@@ -52,7 +64,7 @@ npm run build      # bundles src/ into dist/
 npm test           # builds, then runs test/e2e.cjs in Chromium (needs Playwright and test pages on :8765)
 ```
 
-Serve the test pages first: `cd test/site && python3 -m http.server 8765`. The test loads the extension, scores a good and a bad page, checks highlights, the mark-fixed and reload re-check, and runs Ask Claude against a mocked API. `test/vis.cjs` covers the tracker: prompt suggestions, a run with web search and `pause_turn`, metrics, a capture from a fake ChatGPT page, exports and a scheduled run.
+Serve the test pages first: `cd test/site && python3 -m http.server 8765`. The test loads the extension, scores a good and a bad page, checks highlights, the mark-fixed and reload re-check, and runs Ask Claude against a mocked API. `test/vis.cjs` covers the tracker: prompt suggestions, a run with web search and `pause_turn`, metrics, a capture from a fake ChatGPT page, exports and a scheduled run. `test/comp.cjs` covers competitor analysis against three fake sites: discovery, scoring, the ranking, gaps, Claude's explanation, exports and reopening a saved report.
 
 ## Files
 
@@ -61,6 +73,8 @@ Serve the test pages first: `cd test/site && python3 -m http.server 8765`. The t
 - `src/visibility.js` – visibility engine: Claude with web search, mention and citation analysis, metrics
 - `src/capture.js` – reads answers and sources from ChatGPT, Perplexity, Google, Gemini and Copilot tabs
 - `src/visui.js` – the tracker view, dashboard and exports
+- `src/compete.js` – competitor discovery, comparison and Claude's explanation
+- `src/compui.js` – the competitor analysis view and exports
 - `src/content.js` – page snapshot, axe-core runner and highlight overlay (injected on demand)
 - `src/rules.js` – the scoring rules and accessibility grouping (pure functions)
 - `src/crawler.js` – the site crawler

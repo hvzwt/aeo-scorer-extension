@@ -2,6 +2,7 @@ import { scorePage, diffRuns, hashKey, CATEGORIES, AREAS, A11Y_GROUPS, areaOf, s
 import { MODELS, askClaude, estimateCost, describeError, streamText, BRIEF_SYSTEM, buildBriefInput } from "./claude.js";
 import { crawlSite, normalizeUrl } from "./crawler.js";
 import { fetchInfo, originTech } from "./tech.js";
+import { initComp, showComp, compDownload, renderReport as renderComp } from "./compui.js";
 import { initVis, showVis, refreshCapture, visDownload } from "./visui.js";
 import { pageReportHtml, siteReportHtml, siteIssues, issuesCsv, download, slug, briefMarkdown, siteBriefMarkdown } from "./report.js";
 
@@ -10,7 +11,7 @@ const params = new URLSearchParams(location.search);
 const FIXED_TAB = params.get("tabId") ? Number(params.get("tabId")) : null; // used by tests
 
 const state = {
-  mode: "home", // home | page | site | vis
+  mode: "home", // home | page | site | vis | comp
   settingsOpen: false,
   page: null, // { tabId, url, snap, result, a11y, run, live, fromSite }
   site: null, // stored site report
@@ -111,6 +112,18 @@ async function analyzeTab(tabId, url) {
   return { snap, result, a11y, httpStatus: site.rawHtml?.status ?? null };
 }
 
+/** Analyze a page in a tab and save it as a stored page report. */
+async function analyzePage(tabId, url) {
+  const out = await analyzeTab(tabId, url);
+  if (out.httpStatus >= 400) return out;
+  const { snap, result, a11y } = out;
+  const run = await loadRun(snap.url);
+  const checks = allChecks(result, a11y);
+  Object.assign(run, { url: snap.url, title: snap.title, host: snap.host, stack: snap.stack, checks: checks.map(({ id, pass, severity, title, category }) => ({ id, pass, severity, title, category })), score: result.score, a11yScore: a11y?.score ?? null, result, a11y, at: Date.now() });
+  await saveRun(snap.url, run);
+  return out;
+}
+
 const allChecks = (result, a11y) => [...result.checks, ...(a11y?.checks || [])];
 const compact = ({ items, ...c }) => c;
 
@@ -123,10 +136,11 @@ function setMode(mode) {
   $("view-main").hidden = mode !== "page" || state.settingsOpen;
   $("view-site").hidden = mode !== "site" || state.settingsOpen;
   $("view-vis").hidden = mode !== "vis" || state.settingsOpen;
+  $("view-comp").hidden = mode !== "comp" || state.settingsOpen;
   $("view-settings").hidden = !state.settingsOpen;
   $("btn-rescan").hidden = !(mode === "page" && state.page?.live) && mode !== "site";
   $("btn-rescan").title = mode === "site" ? "Crawl the site again" : "Re-scan this page";
-  $("btn-download").hidden = !((mode === "page" && state.page?.result) || (mode === "site" && state.site?.pages?.length) || mode === "vis");
+  $("btn-download").hidden = !((mode === "page" && state.page?.result) || (mode === "site" && state.site?.pages?.length) || mode === "vis" || (mode === "comp" && !$("comp-report").hidden));
   $("btn-close").hidden = mode === "home";
   $("download-menu").hidden = true;
 }
@@ -780,6 +794,7 @@ function renderSite() {
 
 async function downloadReport(format) {
   if (format.startsWith("vis-")) return visDownload(format);
+  if (format.startsWith("comp-")) return compDownload(format);
   const stamp = new Date().toISOString().slice(0, 10);
   if (state.mode === "site" && state.site) {
     const s = state.site;
@@ -872,6 +887,7 @@ function closeSettings() {
   if (state.mode === "page" && state.page?.result) renderClaude();
   if (state.mode === "home") showHome();
   if (state.mode === "vis") showVis();
+  if (state.mode === "comp") renderComp();
 }
 
 async function saveSettings() {
@@ -903,6 +919,7 @@ $("btn-home").onclick = () => !state.crawlAbort && showHome();
 $("btn-close").onclick = () => {
   if (state.crawlAbort) state.crawlAbort.abort();
   state.claudeAbort?.abort();
+  if (state.mode === "comp") document.getElementById("btn-comp-stop").click();
   if (state.mode === "page" && state.page?.fromSite && state.site) renderSite();
   else showHome();
 };
@@ -954,7 +971,7 @@ $("btn-back-site").onclick = () => state.site && renderSite();
 $("btn-open-live").onclick = () => state.page?.url && openAndScan(state.page.url);
 $("btn-download").onclick = (e) => {
   e.stopPropagation();
-  for (const b of document.querySelectorAll("#download-menu button")) b.hidden = (state.mode === "vis") !== b.classList.contains("vis-only");
+  for (const b of document.querySelectorAll("#download-menu button")) b.hidden = (state.mode === "vis") !== b.classList.contains("vis-only") || (state.mode === "comp") !== b.classList.contains("comp-only");
   $("menu-brief-ai").hidden = !(state.mode === "page" && state.page?.live);
   $("download-menu").hidden = !$("download-menu").hidden;
 };
@@ -1016,11 +1033,13 @@ if (!FIXED_TAB) {
   });
 }
 
-initVis({ state, setMode, openAndScan, currentTab, flash, colorFor, showHome });
+initVis({ state, setMode, openAndScan, currentTab, flash, colorFor, showHome, compare: (o) => showComp(o) });
+initComp({ state, setMode, currentTab, colorFor, showHome, openStoredPage, analyzePage });
 
 (async () => {
   await loadSettings();
   if (params.get("view") === "vis") return showVis();
+  if (params.get("view") === "comp") return showComp({});
   $("toggle-highlight").checked = state.highlight;
   const tab = await currentTab();
   if (scannable(tab?.url)) scanPage({ reason: "open" });

@@ -31,6 +31,8 @@
       <button role="menuitem" data-format="csv">Issues (CSV, for Sheets or Excel)</button>
       <button role="menuitem" data-format="brief">AI brief (Markdown for Claude Code / Cursor)</button>
       <button role="menuitem" data-format="brief-ai" id="menu-brief-ai">AI brief with code fixes written by Claude</button>
+      <button role="menuitem" data-format="comp-html" class="comp-only">Competitor report (HTML)</button>
+      <button role="menuitem" data-format="comp-csv" class="comp-only">Competitor comparison (CSV)</button>
       <button role="menuitem" data-format="vis-html" class="vis-only">Visibility report (HTML)</button>
       <button role="menuitem" data-format="vis-csv" class="vis-only">Prompt results (CSV)</button>
     </div>
@@ -64,6 +66,11 @@
       </select>
     </label>
     <p class="muted small">The crawler opens pages one by one in a background tab, so it sees each page the way a browser renders it, and follows your sitemap and internal links. It respects robots.txt and skips login, cart and admin pages.</p>
+    <div class="card">
+      <div><strong>Competitor analysis</strong></div>
+      <p class="muted small">Find the sites AI answers cite for your questions, score them with the same rules, and see why they rank higher than you.</p>
+      <button id="btn-open-comp">Analyze competitors</button>
+    </div>
     <div class="card vis-entry">
       <div><strong>AI visibility tracker</strong></div>
       <p class="muted small">See whether AI answers mention your brand and cite your site for the questions your buyers ask, compared with your competitors.</p>
@@ -97,6 +104,7 @@
         <div id="a11y-chip" class="a11y-chip"></div>
         <label class="toggle" id="toggle-wrap"><input type="checkbox" id="toggle-highlight"> Highlight issues on page</label>
         <button id="btn-open-live" class="small-btn" hidden>Open page &amp; re-scan live</button>
+        <button id="btn-compare-page" class="small-btn">Compare with competitors</button>
       </div>
     </section>
 
@@ -160,6 +168,62 @@
       <div id="site-issue-list" class="issues"></div>
       <h3 class="sub">Pages <span class="muted small">(lowest score first; click to open the page report)</span></h3>
       <div id="site-pages" class="pages"></div>
+    </section>
+  </main>
+
+  <!-- competitor analysis -->
+  <main id="view-comp" hidden>
+    <section id="comp-setup" hidden>
+      <h2>Who ranks above you in AI answers, and why</h2>
+      <p class="muted small">The extension asks your questions with live web search, takes the pages AI cites, opens each one in a background tab and scores it with the same AEO, GEO, schema and accessibility rules as your page. Then it shows what they do that you don't.</p>
+      <label class="field"><span>Your page</span><input id="comp-url" type="url" placeholder="https://yoursite.com/page" spellcheck="false"></label>
+      <label class="field"><span>Questions this page should win <span class="muted small">(one per line, up to 5)</span></span><textarea id="comp-questions" rows="4" placeholder="What is the best analytics tool for small online stores?"></textarea></label>
+      <label class="field inline"><input type="checkbox" id="comp-ai" checked> <span>Find competitors from AI answers (Claude with web search, about $0.03 per question)</span></label>
+      <label class="field"><span>Competitor pages to include <span class="muted small">(optional, one URL per line)</span></span><textarea id="comp-manual" rows="3" placeholder="https://competitor.com/their-page" spellcheck="false"></textarea></label>
+      <label class="field inline"><span>Competitors to score</span>
+        <select id="comp-max"><option value="3">3</option><option value="5" selected>5</option><option value="8">8</option></select>
+      </label>
+      <div class="row"><button id="btn-comp-run" class="primary">Analyze competitors</button><button id="btn-comp-cancel">Cancel</button></div>
+      <p id="comp-setup-status" class="small" role="status"></p>
+    </section>
+
+    <section id="comp-progress" class="card" hidden>
+      <div class="row between"><strong id="comp-status">Working…</strong><button id="btn-comp-stop" class="small-btn">Stop</button></div>
+      <div class="bar big"><span id="comp-bar"></span></div>
+      <div id="comp-now" class="muted small ellipsis"></div>
+    </section>
+
+    <section id="comp-report" hidden>
+      <div class="row between">
+        <div><div class="host" id="comp-name"></div><div class="muted small" id="comp-meta"></div></div>
+        <div class="row tight"><button id="btn-comp-edit" class="small-btn">New analysis</button><button id="btn-comp-rerun" class="small-btn">Re-run</button></div>
+      </div>
+      <div class="site-scores">
+        <div class="tile"><span class="muted small">Your AEO score</span><b id="comp-you">–</b></div>
+        <div class="tile"><span class="muted small">Competitor median</span><b id="comp-median">–</b></div>
+        <div class="tile"><span class="muted small" id="comp-cited-label">AI cited you</span><b id="comp-cited">–</b></div>
+      </div>
+      <p id="comp-verdict" class="small"></p>
+      <h3 class="sub">Ranking <span class="muted small">(AI citations first, then AEO score)</span></h3>
+      <div id="comp-rank" class="pages"></div>
+
+      <section id="comp-claude" class="claude">
+        <div class="claude-head">
+          <div><h2>Why they win</h2><p id="comp-claude-sub" class="muted small">Claude reads your page and theirs and writes the reasons and an action plan.</p></div>
+          <button id="btn-comp-why" class="primary">Explain with Claude</button>
+        </div>
+        <div id="comp-why"></div>
+      </section>
+
+      <h3 class="sub">What they do that you don't <span class="muted small">(checks most competitors pass and you fail)</span></h3>
+      <div id="comp-reasons" class="issues"></div>
+      <div id="comp-schema"></div>
+      <h3 class="sub">Content compared with the competitor median</h3>
+      <table id="comp-facts" class="vis-table"></table>
+      <h3 class="sub">Score by area</h3>
+      <div id="comp-cats" class="categories"></div>
+      <div id="comp-strengths"></div>
+      <div id="comp-answers"></div>
     </section>
   </main>
 

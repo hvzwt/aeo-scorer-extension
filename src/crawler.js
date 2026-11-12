@@ -147,3 +147,28 @@ export async function crawlSite({ startUrl, maxPages = 25, analyze, onProgress, 
   }
   return { origin, startUrl, pages, skipped, sitemapCount: fromSitemap.length, aborted: !!signal?.aborted };
 }
+
+/** Open each URL in one background tab and analyze it (any site). Returns records in order. */
+export async function scanUrls({ urls, analyze, onProgress, signal }) {
+  const out = [];
+  const tab = await chrome.tabs.create({ url: "about:blank", active: false });
+  try {
+    for (let i = 0; i < urls.length; i++) {
+      if (signal?.aborted) break;
+      const url = urls[i];
+      onProgress?.({ done: i, total: urls.length, url });
+      try {
+        const loaded = waitForLoad(tab.id);
+        await chrome.tabs.update(tab.id, { url });
+        const ok = await loaded;
+        await new Promise((r) => setTimeout(r, ok ? 900 : 0));
+        out.push(await analyze(tab.id, url));
+      } catch (e) {
+        out.push({ url, error: String(e?.message || e) });
+      }
+    }
+  } finally {
+    chrome.tabs.remove(tab.id).catch(() => {});
+  }
+  return out;
+}

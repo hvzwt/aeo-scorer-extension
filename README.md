@@ -23,6 +23,15 @@ A Chrome side panel that scores a page or a whole site for Answer Engine Optimiz
 - **Reports.** The download button exports an HTML report (opens in any browser, prints to PDF) or a CSV with one row per issue, for the page or the whole site.
 - **AI brief.** A Markdown fix list to paste into Claude Code, Cursor or Copilot: every failing issue with where it is, the fix and a "done when" test. With an API key, "AI brief with code fixes written by Claude" reads the real page HTML and detected stack (Next.js, WordPress, Webflow, Shopify and more) and writes the exact code change per issue.
 
+## What's new in 0.7
+
+- **Tool tabs.** Page, Site, Competitors and AI visibility sit under the header, one click from anywhere.
+- **At a glance.** Six colour-coded tiles under the score (critical and major issues, AI crawlers allowed, what AI crawlers see, structured data, speed, accessibility). Red means act now, orange needs work, green is fine. Click a tile to filter the list to those issues.
+- **Fix these first.** The three most important open issues, with the fix and the actions in view. Blockers get a red alert that lists each one.
+- **Fewer clicks.** Fixes for critical and major issues are open by default, filters show counts, and clicking a score bar shows only that area. The site report sorts issues by severity and pages affected.
+- **New checks.** Core Web Vitals (LCP, INP, CLS) from Google PageSpeed Insights, using real-user data when Google has it (turn it off in Settings; local pages are skipped). Applebot and DuckAssistBot access, more training bots reported (CCBot, Bytespider, Amazonbot, Applebot-Extended, Meta-ExternalAgent), llms.txt format, Twitter/X card, brand name consistency across title, og:site_name and schema, and humans.txt.
+- **Panel accessibility.** Darker minor-issue colour for AA contrast, visible focus rings, 28 px minimum controls, and screen-reader announcements for blockers and re-checks.
+
 ## Competitor analysis
 
 Open it from the start screen (**Analyze competitors**), from a page report (**Compare with competitors**), or from a gap in the visibility tracker.
@@ -61,7 +70,7 @@ Open it from the start screen (**Open tracker**). It does what Profound, Otterly
 ```
 npm install
 npm run build      # bundles src/ into dist/
-npm test           # builds, then runs test/e2e.cjs in Chromium (needs Playwright and test pages on :8765)
+npm test           # builds, then runs test/unit.mjs and test/e2e.cjs in Chromium (needs Playwright and test pages on :8765)
 ```
 
 Serve the test pages first: `cd test/site && python3 -m http.server 8765`. The test loads the extension, scores a good and a bad page, checks highlights, the mark-fixed and reload re-check, and runs Ask Claude against a mocked API. `test/vis.cjs` covers the tracker: prompt suggestions, a run with web search and `pause_turn`, metrics, a capture from a fake ChatGPT page, exports and a scheduled run. `test/comp.cjs` covers competitor analysis against three fake sites: discovery, scoring, the ranking, gaps, Claude's explanation, exports and reopening a saved report.

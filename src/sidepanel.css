@@ -8,7 +8,7 @@
   --accent: #1a73e8;
   --critical: #d93025;
   --major: #e8710a;
-  --minor: #b08d00;
+  --minor: #8a6a00;
   --info: #1a73e8;
   --ai: #7b3fe4;
   --good: #188038;
@@ -216,3 +216,60 @@ pre { white-space: pre-wrap; word-break: break-word; background: var(--panel); b
 .legend i { display: inline-block; width: 10px; height: 4px; margin-right: 4px; vertical-align: middle; }
 .why-list { margin: 6px 0; padding-left: 18px; }
 .why-list li { margin: 6px 0; }
+
+
+/* ---------- v0.7 UI: navigation, at-a-glance, stand-out states ---------- */
+:root { --critical-bg: color-mix(in srgb, var(--critical) 12%, var(--bg)); --good-bg: color-mix(in srgb, var(--good) 12%, var(--bg)); --major-bg: color-mix(in srgb, var(--major) 12%, var(--bg)); }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+button { min-height: 28px; }
+.top { flex-wrap: wrap; row-gap: 6px; }
+.mainnav { flex-basis: 100%; display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+.mainnav button { font-size: 12px; padding: 5px 4px; border-radius: 6px; background: var(--panel); }
+.mainnav button[aria-current="page"] { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 700; }
+@media (prefers-color-scheme: dark) { .mainnav button[aria-current="page"] { color: #1b1d21; } }
+.menu { top: 84px; }
+
+.blockers { margin-top: 12px; padding: 10px 12px; border-radius: 8px; background: var(--critical-bg); border: 2px solid var(--critical); }
+.blockers b { color: var(--critical); display: block; margin-bottom: 4px; }
+.blockers ul { margin: 4px 0 0; padding-left: 18px; }
+
+.glance { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 12px; }
+.glance button { display: grid; gap: 1px; text-align: left; padding: 7px 8px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); }
+.glance button .k { font-size: 11px; color: var(--muted); }
+.glance button .v { font-size: 18px; font-weight: 800; line-height: 1.15; font-variant-numeric: tabular-nums; }
+.glance button .s { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.glance button.bad { border-color: var(--critical); background: var(--critical-bg); }
+.glance button.bad .v { color: var(--critical); }
+.glance button.warn { border-color: var(--major); background: var(--major-bg); }
+.glance button.warn .v { color: var(--major); }
+.glance button.ok .v { color: var(--good); }
+.glance button.wait .v { color: var(--muted); }
+
+.top-fixes { margin-top: 14px; }
+.top-fixes h2 { font-size: 14px; margin: 0 0 6px; }
+.fix-row { border: 1px solid var(--line); border-left: 4px solid var(--major); border-radius: 8px; padding: 8px 10px; margin-bottom: 6px; background: var(--bg); }
+.fix-row.sev-critical { border-left-color: var(--critical); }
+.fix-row .h { display: flex; gap: 8px; align-items: baseline; }
+.fix-row .h b { flex: 1; }
+.fix-row p { margin: 4px 0 0; font-size: 12px; }
+.fix-row .a { display: flex; gap: 6px; margin-top: 6px; }
+
+.categories .cat { cursor: pointer; border-radius: 6px; padding: 2px 4px; margin: 0 -4px; border: 0; background: none; text-align: left; width: calc(100% + 8px); min-height: 0; }
+.categories .cat:hover, .categories .cat[aria-pressed="true"] { background: var(--panel); }
+.cat-filter { margin-top: 12px; }
+.cat-filter button { font-size: 12px; border-radius: 14px; padding: 3px 10px; background: var(--accent); color: #fff; border-color: var(--accent); }
+.filters button .n { font-weight: 700; margin-left: 3px; opacity: .85; }
+.tabs .sevcount { font-size: 11px; font-weight: 700; margin-left: 4px; }
+.tabs .sevcount.c { color: var(--critical); }
+.tabs .sevcount.m { color: var(--major); }
+.issue.sev-critical, .issue.sev-major { border-left-width: 5px; }
+.issue.sev-critical .issue-title { color: var(--critical); }
+.issue .fix-inline { margin: 6px 0 0; padding: 6px 8px; background: var(--panel); border-radius: 6px; font-size: 12px; }
+.issue .fix-inline b { color: var(--good); }
+.home-tools { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 10px 0; }
+.home-tools button { display: grid; gap: 2px; text-align: left; padding: 10px; border-radius: 10px; background: var(--panel); }
+.home-tools button b { font-size: 13px; }
+.home-tools button span { font-size: 11.5px; color: var(--muted); }
+.home-tools button.primary span { color: #fffd; }
+.home-tools button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+@media (prefers-color-scheme: dark) { .home-tools button.primary { color: #1b1d21; } .home-tools button.primary span { color: #1b1d21cc; } }

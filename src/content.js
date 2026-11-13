@@ -212,6 +212,7 @@
         type: meta('meta[property="og:type"]'),
         description: meta('meta[property="og:description"]'),
         modified: meta('meta[property="article:modified_time"]'),
+        siteName: meta('meta[property="og:site_name"]'),
       },
       hreflang,
       landmarks: {

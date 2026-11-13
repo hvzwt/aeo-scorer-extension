@@ -68,8 +68,21 @@ function sse(text = JSON.stringify(review)) {
       for (const t of open) console.log("   -", t);
     }
 
-    // highlight on page
+    // at-a-glance tiles, top fixes, navigation
     const bad = results.bad;
+    console.log("glance:", await bad.panel.$$eval("#glance button", (b) => b.map((x) => `${x.className || "plain"}:${x.querySelector(".k").textContent}=${x.querySelector(".v").textContent}`)));
+    console.log("fix first:", await bad.panel.$$eval("#top-fixes-list .fix-row", (r) => r.map((x) => x.querySelector(".sev").textContent + " " + x.querySelector("b").textContent)));
+    await bad.panel.locator("#glance button", { hasText: "AI crawlers allowed" }).click();
+    console.log("after crawler tile: tab", await bad.panel.$eval('#tabs [aria-selected="true"]', (b) => b.dataset.tab), "| filter", await bad.panel.textContent("#cat-filter"), "| issues", await bad.panel.$$eval("#issues .issue .issue-title", (n) => n.map((x) => x.textContent)));
+    await bad.panel.click("#cat-filter button");
+    console.log("category filter cleared:", await bad.panel.isHidden("#cat-filter"), "| filter counts:", await bad.panel.$$eval("#filters button", (b) => b.map((x) => x.textContent.replace(/\s+/g, " "))));
+    await bad.panel.click('#mainnav button[data-go="comp"]');
+    await bad.panel.waitForSelector("#view-comp:not([hidden])");
+    await bad.panel.click('#mainnav button[data-go="page"]');
+    await bad.panel.waitForSelector("#view-main:not([hidden]) #glance:not([hidden])");
+    console.log("nav comp -> page ok, current:", await bad.panel.$eval('#mainnav [aria-current="page"]', (b) => b.dataset.go));
+
+    // highlight on page
     await bad.panel.check("#toggle-highlight");
     await bad.page.waitForSelector("#__aeo-scorer-overlay > div", { timeout: 5000 });
     const boxes = await bad.page.$$eval("#__aeo-scorer-overlay > div", (n) => n.length);

@@ -78,12 +78,13 @@ export async function emailRecords(host) {
 export async function originTech(origin) {
   const u = new URL(origin);
   const random = `/aeo-scorer-check-${Math.random().toString(36).slice(2, 10)}`;
-  const [notFound, securityTxt, sitemap, httpVersion, email] = await Promise.all([
+  const [notFound, securityTxt, sitemap, httpVersion, email, humans] = await Promise.all([
     fetchInfo(origin + random, { readBody: true }),
     fetchInfo(`${origin}/.well-known/security.txt`),
     fetchInfo(`${origin}/sitemap.xml`),
     u.protocol === "https:" ? fetchInfo(`http://${u.host}/`, { readBody: false }) : Promise.resolve(null),
     emailRecords(u.hostname),
+    fetchInfo(`${origin}/humans.txt`),
   ]);
   return {
     notFoundStatus: notFound?.status ?? null,
@@ -91,5 +92,26 @@ export async function originTech(origin) {
     sitemapStatus: sitemap ? (sitemap.status === 200 && /<(urlset|sitemapindex)/i.test(sitemap.text) ? 200 : sitemap.status === 200 ? 415 : sitemap.status) : null,
     httpRedirectsToHttps: httpVersion ? /^https:/i.test(httpVersion.finalUrl || "") : null,
     email,
+    humansTxt: !!(humans && humans.status === 200 && !/text\/html/.test(humans.contentType || "") && humans.text?.trim()),
   };
+}
+
+/** Core Web Vitals and performance from the public PageSpeed Insights API (mobile). */
+export async function pageSpeed(url, { signal } = {}) {
+  const api = `https://www.googleapis.com/pagespeedonline/v5/runPagespeed?strategy=mobile&category=performance&url=${encodeURIComponent(url)}`;
+  try {
+    const res = await fetch(api, { signal, credentials: "omit" });
+    const j = await res.json();
+    if (!res.ok) return { error: j?.error?.message || `PageSpeed Insights returned ${res.status}` };
+    const f = j.loadingExperience?.metrics || {};
+    const a = j.lighthouseResult?.audits || {};
+    const field = !!(f.LARGEST_CONTENTFUL_PAINT_MS && f.CUMULATIVE_LAYOUT_SHIFT_SCORE);
+    const metrics = field
+      ? { lcp: f.LARGEST_CONTENTFUL_PAINT_MS?.percentile ?? null, inp: f.INTERACTION_TO_NEXT_PAINT?.percentile ?? null, cls: f.CUMULATIVE_LAYOUT_SHIFT_SCORE ? f.CUMULATIVE_LAYOUT_SHIFT_SCORE.percentile / 100 : null }
+      : { lcp: a["largest-contentful-paint"]?.numericValue ?? null, inp: a["total-blocking-time"]?.numericValue ?? null, cls: a["cumulative-layout-shift"]?.numericValue ?? null };
+    const perf = j.lighthouseResult?.categories?.performance?.score;
+    return { field, metrics, performance: perf == null ? null : Math.round(perf * 100), at: Date.now() };
+  } catch (e) {
+    return { error: e?.name === "AbortError" ? "Stopped." : `PageSpeed Insights unavailable: ${e?.message || e}` };
+  }
 }

@@ -1,10 +1,10 @@
 {
   "name": "aeo-scorer-extension",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Chrome side panel that scores pages for AEO/GEO",
   "scripts": {
     "build": "node build.mjs",
-    "test": "node build.mjs && node test/e2e.cjs && node test/vis.cjs && node test/comp.cjs"
+    "test": "node build.mjs && node test/unit.mjs && node test/e2e.cjs && node test/vis.cjs && node test/comp.cjs"
   },
   "keywords": [],
   "author": "",

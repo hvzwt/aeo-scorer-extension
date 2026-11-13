@@ -1,7 +1,7 @@
 import { scorePage, diffRuns, hashKey, CATEGORIES, AREAS, A11Y_GROUPS, areaOf, scoreAccessibility, siteWideChecks } from "./rules.js";
 import { MODELS, askClaude, estimateCost, describeError, streamText, BRIEF_SYSTEM, buildBriefInput } from "./claude.js";
 import { crawlSite, normalizeUrl } from "./crawler.js";
-import { fetchInfo, originTech } from "./tech.js";
+import { fetchInfo, originTech, pageSpeed } from "./tech.js";
 import { initComp, showComp, compDownload, renderReport as renderComp } from "./compui.js";
 import { initVis, showVis, refreshCapture, visDownload } from "./visui.js";
 import { pageReportHtml, siteReportHtml, siteIssues, issuesCsv, download, slug, briefMarkdown, siteBriefMarkdown } from "./report.js";
@@ -18,11 +18,12 @@ const state = {
   crawlAbort: null,
   tab: "open",
   area: "all",
+  category: null,
   siteArea: "all",
   highlight: false,
   scanning: false,
   claudeAbort: null,
-  settings: { apiKey: "", model: MODELS[0].id, effort: "low", a11y: true },
+  settings: { apiKey: "", model: MODELS[0].id, effort: "low", a11y: true, speed: true },
 };
 
 // ---------------------------------------------------------------- storage
@@ -58,6 +59,7 @@ async function originData(origin) {
       at: Date.now(),
       robots: robotsOk ? robots : robots && { status: robots.status === 200 ? 404 : robots.status, text: "" },
       llmsTxt: llms ? llms.status === 200 && !/text\/html/.test(llms.contentType) : null,
+      llmsText: llms && llms.status === 200 && !/text\/html/.test(llms.contentType) ? String(llms.text || "").slice(0, 20000) : null,
       tech,
     };
     siteCache.set(origin, cached);
@@ -68,7 +70,7 @@ async function originData(origin) {
 async function siteData(url) {
   const o = await originData(new URL(url).origin);
   const rawHtml = await fetchText(url); // the server response, without running JavaScript
-  return { robots: o.robots, llmsTxt: o.llmsTxt, rawHtml, tech: o.tech };
+  return { robots: o.robots, llmsTxt: o.llmsTxt, llmsText: o.llmsText, rawHtml, tech: o.tech };
 }
 
 // ---------------------------------------------------------------- page bridge
@@ -109,7 +111,7 @@ async function analyzeTab(tabId, url) {
       a11y = null;
     }
   }
-  return { snap, result, a11y, httpStatus: site.rawHtml?.status ?? null };
+  return { snap, result, a11y, site, httpStatus: site.rawHtml?.status ?? null };
 }
 
 /** Analyze a page in a tab and save it as a stored page report. */
@@ -143,6 +145,11 @@ function setMode(mode) {
   $("btn-download").hidden = !((mode === "page" && state.page?.result) || (mode === "site" && state.site?.pages?.length) || mode === "vis" || (mode === "comp" && !$("comp-report").hidden));
   $("btn-close").hidden = mode === "home";
   $("download-menu").hidden = true;
+  $("mainnav").hidden = state.settingsOpen;
+  for (const b of document.querySelectorAll("#mainnav button")) {
+    if (b.dataset.go === mode) b.setAttribute("aria-current", "page");
+    else b.removeAttribute("aria-current");
+  }
 }
 
 async function currentTab() {
@@ -212,7 +219,11 @@ async function scanPage({ reason = "manual" } = {}) {
   $("btn-rescan").classList.add("spin");
   if (!state.page.result || state.page.url !== tab.url) showState("Scanning page…");
   try {
-    const { snap, result, a11y } = await analyzeTab(tab.id, tab.url);
+    const { snap, result: firstResult, a11y, site } = await analyzeTab(tab.id, tab.url);
+    let result = firstResult;
+    const prevRun = await loadRun(snap.url);
+    const cachedPsi = freshPsi(prevRun.psi, snap.url);
+    if (cachedPsi) result = scorePage(snap, { ...site, psi: cachedPsi });
     const run = await loadRun(snap.url);
     const sameUrl = state.page.url === snap.url;
     const checks = allChecks(result, a11y);
@@ -235,8 +246,10 @@ async function scanPage({ reason = "manual" } = {}) {
     });
     await saveRun(snap.url, run);
 
-    Object.assign(state.page, { url: snap.url, snap, result, a11y, run });
+    if (cachedPsi) run.psi = cachedPsi;
+    Object.assign(state.page, { url: snap.url, snap, result, a11y, run, site, psiPending: false });
     renderPage();
+    if (!cachedPsi) measureSpeed(state.page);
     renderRecheck(diff, prevScore, sameUrl || reason === "reload");
     if (state.highlight) highlightAll();
   } catch (e) {
@@ -287,6 +300,37 @@ function showState(msg) {
   $("issues").replaceChildren();
 }
 
+// ---------------------------------------------------------------- speed
+
+const PSI_TTL = 6 * 3600_000;
+const freshPsi = (psi, url) => (psi && !psi.error && psi.url === url && Date.now() - psi.at < PSI_TTL ? psi : null);
+function publicUrl(url) {
+  try {
+    const h = new URL(url).hostname;
+    return !/^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|\[?::1)|\.(test|local|localhost|internal)$/.test(h);
+  } catch {
+    return false;
+  }
+}
+
+/** Core Web Vitals from PageSpeed Insights; re-scores the page when they arrive. */
+async function measureSpeed(page) {
+  if (state.settings.speed === false || !publicUrl(page.url)) return;
+  page.psiPending = true;
+  if (state.page === page) renderGlance();
+  const psi = await pageSpeed(page.url);
+  psi.url = page.url;
+  page.psiPending = false;
+  page.run.psi = psi;
+  if (!psi.error) {
+    page.result = scorePage(page.snap, { ...page.site, psi });
+    const checks = allChecks(page.result, page.a11y);
+    Object.assign(page.run, { result: page.result, score: page.result.score, checks: checks.map(({ id, pass, severity, title, category }) => ({ id, pass, severity, title, category })) });
+  }
+  await saveRun(page.url, page.run);
+  if (state.page === page && state.mode === "page") renderPage();
+}
+
 // ---------------------------------------------------------------- page rendering
 
 function colorFor(score) {
@@ -306,9 +350,15 @@ function renderPage() {
   $("btn-open-live").hidden = live;
 
   $("score").textContent = result.score;
-  $("grade").textContent = result.grade;
+  $("grade").textContent = `Grade ${result.grade.split(" · ")[0]}`;
+  $("grade").title = result.grade;
   $("blockers").hidden = !result.blockers?.length;
-  if (result.blockers?.length) $("blockers").textContent = `Score capped at 59 (from ${result.rawScore}) until you fix: ${result.blockers.join("; ")}.`;
+  if (result.blockers?.length) {
+    $("blockers").innerHTML = `<b></b><span></span><ul></ul>`;
+    $("blockers").querySelector("b").textContent = `${result.blockers.length} blocker${result.blockers.length > 1 ? "s" : ""}: AI engines can't use this page yet`;
+    $("blockers").querySelector("span").textContent = `The score is capped at 59 (it would be ${result.rawScore}) until you fix:`;
+    $("blockers").querySelector("ul").replaceChildren(...result.blockers.map(li));
+  }
   const fg = $("ring-fg");
   fg.style.strokeDashoffset = String(326.7 * (1 - result.score / 100));
   fg.style.stroke = colorFor(result.score);
@@ -321,6 +371,7 @@ function renderPage() {
   $("page-title").title = state.page.url;
   $("scanned-at").textContent = `${live ? "Scanned" : "Saved scan from"} ${new Date(run.at).toLocaleString()}`;
   const chip = $("a11y-chip");
+  chip.hidden = true; // shown in the at-a-glance tiles
   if (a11y) {
     chip.innerHTML = `Accessibility <b></b><span class="muted">/100 · <span></span></span>`;
     chip.querySelector("b").textContent = a11y.score;
@@ -329,9 +380,12 @@ function renderPage() {
   } else chip.textContent = state.settings.a11y ? "Accessibility: not available on this page" : "";
 
   $("categories").replaceChildren(
-    ...Object.values(result.categories).map((c) => {
-      const row = document.createElement("div");
+    ...Object.entries(result.categories).map(([key, c]) => {
+      const row = document.createElement("button");
       row.className = "cat";
+      row.title = `Show only ${c.label} issues`;
+      row.setAttribute("aria-pressed", String(state.category === key));
+      row.onclick = () => setCategory(state.category === key ? null : key);
       row.innerHTML = `<span class="cat-label"></span><span class="cat-score"></span><div class="bar"><span></span></div>`;
       row.querySelector(".cat-label").textContent = `${c.label} · ${c.passed}/${c.total}`;
       row.querySelector(".cat-score").textContent = `${c.score}%`;
@@ -357,8 +411,110 @@ function renderPage() {
     }
   }
 
+  renderGlance();
+  renderTopFixes();
   renderClaude();
   renderIssues();
+}
+
+function openIssues() {
+  return allIssues().filter((i) => !i.pass && i.severity !== "info" && !isMarked(i));
+}
+
+/** One row of tiles: the numbers that matter, each one click from its issues. */
+function renderGlance() {
+  const p = state.page;
+  if (!p?.result) return;
+  const box = $("glance");
+  box.hidden = false;
+  const open = openIssues();
+  const crit = open.filter((i) => i.severity === "critical").length;
+  const major = open.filter((i) => i.severity === "major").length;
+  const bots = p.result.checks.filter((c) => /^robots-allow-/.test(c.id));
+  const botsOk = bots.filter((c) => c.pass).length;
+  const blocked = bots.filter((c) => !c.pass && c.severity !== "minor");
+  const schemaTypes = p.result.checks.find((c) => c.id === "jsonld-present");
+  const psi = p.run.psi && !p.run.psi.error && p.run.psi.url === p.url ? p.run.psi : null;
+  const lcp = psi?.metrics?.lcp;
+  const raw = p.result.checks.find((c) => c.id === "server-rendered");
+  const tiles = [
+    { k: "Critical + major", v: `${crit + major}`, s: `${crit} critical · ${major} major`, cls: crit ? "bad" : major ? "warn" : "ok", go: () => setFilter({ tab: "open", area: "all", category: null }) },
+    { k: "AI crawlers allowed", v: bots.length ? `${botsOk}/${bots.length}` : "–", s: blocked.length ? `Blocked: ${blocked.map((c) => c.title.replace("robots.txt allows ", "")).join(", ")}` : "Search and AI bots can fetch it", cls: blocked.length ? "bad" : bots.length ? "ok" : "", go: () => setFilter({ tab: blocked.length ? "open" : "passed", area: "aeo", category: "access" }) },
+    { k: "What AI crawlers see", v: raw ? (raw.pass ? "Full" : "Partial") : "–", s: raw ? (raw.pass ? "Content is in the server HTML" : "Content needs JavaScript") : "Not checked", cls: raw ? (raw.pass ? "ok" : "bad") : "", go: () => setFilter({ tab: raw && !raw.pass ? "open" : "passed", area: "aeo", category: "access" }) },
+    { k: "Structured data", v: `${p.result.categories.schema?.score ?? "–"}%`, s: schemaTypes?.pass ? (schemaTypes.detail || "").replace(/^Found:?\s*/i, "").slice(0, 60) : "No JSON-LD", cls: (p.result.categories.schema?.score ?? 0) >= 75 ? "ok" : (p.result.categories.schema?.score ?? 0) >= 50 ? "warn" : "bad", go: () => setFilter({ tab: "open", area: "schema", category: null }) },
+    { k: "Speed (LCP)", v: psi && lcp != null ? `${(lcp / 1000).toFixed(1)}s` : p.psiPending ? "…" : "–", s: psi ? `${psi.field ? "Real users" : "Lab test"}${psi.performance != null ? ` · perf ${psi.performance}` : ""}` : p.psiPending ? "Measuring with PageSpeed…" : p.run.psi?.error ? "PageSpeed unavailable" : publicUrl(p.url) ? (state.settings.speed === false ? "Off in Settings" : "Not measured") : "Local page, not measured", cls: psi && lcp != null ? (lcp <= 2500 ? "ok" : lcp <= 4000 ? "warn" : "bad") : "wait", go: () => setFilter({ tab: "open", area: "tech", category: null }) },
+    { k: "Accessibility", v: p.a11y ? `${p.a11y.score}` : "–", s: p.a11y ? `${p.a11y.checks.length} rule${p.a11y.checks.length === 1 ? "" : "s"} failing` : "Not run", cls: p.a11y ? (p.a11y.score >= 90 ? "ok" : p.a11y.score >= 70 ? "warn" : "bad") : "", go: () => setFilter({ tab: "open", area: "a11y", category: null }) },
+  ];
+  box.replaceChildren(
+    ...tiles.map((t) => {
+      const b = document.createElement("button");
+      b.className = t.cls || "";
+      b.innerHTML = `<span class="k"></span><span class="v"></span><span class="s"></span>`;
+      b.querySelector(".k").textContent = t.k;
+      b.querySelector(".v").textContent = t.v;
+      b.querySelector(".s").textContent = t.s;
+      b.title = t.s;
+      b.onclick = t.go;
+      return b;
+    }),
+  );
+}
+
+const IMPACT = { access: 1.6, answers: 1.5, schema: 1.3, trust: 1.2, structure: 1.1, head: 0.9, tech: 0.7, a11y: 0.8 };
+const SEV_POINTS = { critical: 10, major: 5, minor: 2 };
+
+/** The three open issues with the most impact, with the fix in view. */
+function renderTopFixes() {
+  const top = openIssues()
+    .map((i) => ({ i, w: (IMPACT[i.category] || 1) * (i.blocker ? 3 : 1) * (i.kind === "ai" ? 1.2 : 1) }))
+    .sort((a, b) => !!b.i.blocker - !!a.i.blocker || (SEV_POINTS[b.i.severity] || 0) - (SEV_POINTS[a.i.severity] || 0) || b.w - a.w)
+    .slice(0, 3)
+    .map((x) => x.i);
+  $("top-fixes").hidden = !top.length;
+  $("top-fixes-list").replaceChildren(
+    ...top.map((i) => {
+      const row = document.createElement("div");
+      row.className = `fix-row sev-${i.severity}`;
+      row.innerHTML = `<div class="h"><span class="sev"></span><b></b></div><p class="d muted"></p><p class="f"></p><div class="a"></div>`;
+      row.querySelector(".sev").textContent = i.severity;
+      row.querySelector(".sev").classList.add(i.severity);
+      row.querySelector("b").textContent = i.title;
+      row.querySelector(".d").textContent = i.detail || "";
+      row.querySelector(".f").textContent = i.fix || "";
+      const a = row.querySelector(".a");
+      const targets = i.items?.length ? i.items : i.selector ? [{ selector: i.selector }] : [];
+      if (targets.length && state.page.live) {
+        const b = Object.assign(document.createElement("button"), { className: "small-btn", textContent: "Show on page" });
+        b.onclick = () => focusIssue(i, targets);
+        a.append(b);
+      }
+      if (i.suggested) {
+        const c = Object.assign(document.createElement("button"), { className: "small-btn", textContent: "Copy fix" });
+        c.onclick = () => copyText(i.suggested, c);
+        a.append(c);
+      }
+      const m = Object.assign(document.createElement("button"), { className: "small-btn", textContent: "Mark fixed" });
+      m.onclick = () => toggleMarked(i, true);
+      a.append(m);
+      return row;
+    }),
+  );
+}
+
+function setCategory(key) {
+  state.category = key;
+  if (!key) state.area = "all";
+  state.tab = "open";
+  renderPage();
+  if (key) $("cat-filter").scrollIntoView({ block: "start", behavior: "smooth" });
+}
+
+function setFilter({ tab, area, category }) {
+  state.tab = tab;
+  state.area = area;
+  state.category = category;
+  renderPage();
+  $("tabs").scrollIntoView({ block: "start", behavior: "smooth" });
 }
 
 function renderRecheck(diff, prevScore, show) {
@@ -413,13 +569,29 @@ function setArea(area) {
 }
 
 function renderIssues() {
-  const issues = allIssues().filter((i) => state.area === "all" || areaOf(i.category) === state.area);
+  const every = allIssues().filter((i) => !state.category || i.category === state.category);
+  const issues = every.filter((i) => state.area === "all" || areaOf(i.category) === state.area);
+  const cf = $("cat-filter");
+  cf.hidden = !state.category;
+  if (state.category) {
+    const b = Object.assign(document.createElement("button"), { textContent: `${CATEGORIES[state.category]?.label || state.category} only  ✕`, title: "Show all areas" });
+    b.onclick = () => setCategory(null);
+    cf.replaceChildren(b);
+  }
+  for (const b of document.querySelectorAll("#filters button")) {
+    const n = every.filter((i) => !i.pass && i.severity !== "info" && !isMarked(i) && (b.dataset.area === "all" || areaOf(i.category) === b.dataset.area)).length;
+    let span = b.querySelector(".n");
+    if (!span) b.append((span = Object.assign(document.createElement("span"), { className: "n" })));
+    span.textContent = n;
+  }
   const buckets = {
     open: issues.filter((i) => !i.pass && i.severity !== "info" && !isMarked(i)),
     marked: issues.filter((i) => !i.pass && isMarked(i)),
     passed: issues.filter((i) => i.pass || i.severity === "info"),
   };
-  $("count-open").textContent = buckets.open.length;
+  const nc = buckets.open.filter((i) => i.severity === "critical").length;
+  const nm = buckets.open.filter((i) => i.severity === "major").length;
+  $("count-open").innerHTML = `${buckets.open.length}${nc ? `<span class="sevcount c">${nc} critical</span>` : ""}${nm ? `<span class="sevcount m">${nm} major</span>` : ""}`;
   $("count-marked").textContent = buckets.marked.length;
   $("count-passed").textContent = buckets.passed.length;
   for (const b of document.querySelectorAll("#tabs button")) b.setAttribute("aria-selected", String(b.dataset.tab === state.tab));
@@ -450,6 +622,7 @@ function issueCard(issue, { marked = false, live = false, pages = null, totalPag
   node.querySelector(".issue-detail").textContent = pages ? `On ${pages.length} of ${totalPages} pages. ${issue.detail || ""}` : issue.detail || "";
   node.querySelector(".fix-text").textContent = issue.fix || "";
   if (passed && issue.severity !== "info") node.querySelector(".issue-fix").hidden = true;
+  if (!passed && !marked && (issue.severity === "critical" || issue.severity === "major")) node.querySelector(".issue-fix").open = true;
 
   const chips = node.querySelector(".chips");
   const chip = (t, cls = "") => chips.append(Object.assign(document.createElement("span"), { className: `chip ${cls}`, textContent: t }));
@@ -513,6 +686,8 @@ async function toggleMarked(issue, on) {
   if (on) bag[issue.id] = Date.now();
   else delete bag[issue.id];
   await saveRun(state.page.url, run);
+  renderGlance();
+  renderTopFixes();
   renderIssues();
 }
 
@@ -763,10 +938,21 @@ function renderSite() {
   };
   tile("site-score", s.avgScore);
   tile("site-a11y", s.avgA11y);
-  const issues = [...(s.siteChecks || []), ...siteIssues(ok)];
+  const sevRank = { critical: 0, major: 1, minor: 2, info: 3 };
+  const issues = [...(s.siteChecks || []), ...siteIssues(ok)].sort((a, b) => sevRank[a.severity] - sevRank[b.severity] || (b.pages?.length || 0) - (a.pages?.length || 0));
+  const nCrit = issues.filter((i) => i.severity === "critical").length;
+  const nMaj = issues.filter((i) => i.severity === "major").length;
   $("site-issues").textContent = issues.length;
+  $("site-issues").style.color = nCrit ? "var(--critical)" : nMaj ? "var(--major)" : "var(--good)";
+  $("site-issues").title = `${nCrit} critical · ${nMaj} major`;
+  $("site-issues-sub").textContent = `${nCrit} critical · ${nMaj} major`;
 
-  for (const b of document.querySelectorAll("#site-filters button")) b.setAttribute("aria-pressed", String(b.dataset.area === state.siteArea));
+  for (const b of document.querySelectorAll("#site-filters button")) {
+    b.setAttribute("aria-pressed", String(b.dataset.area === state.siteArea));
+    let span = b.querySelector(".n");
+    if (!span) b.append((span = Object.assign(document.createElement("span"), { className: "n" })));
+    span.textContent = issues.filter((i) => b.dataset.area === "all" || areaOf(i.category) === b.dataset.area).length;
+  }
   const list = issues.filter((i) => state.siteArea === "all" || areaOf(i.category) === state.siteArea);
   $("site-issue-list").replaceChildren(
     ...(list.length
@@ -878,6 +1064,7 @@ function openSettings() {
   $("set-model").replaceChildren(...MODELS.map((m) => new Option(m.label, m.id, false, m.id === state.settings.model)));
   $("set-effort").value = state.settings.effort;
   $("set-a11y").checked = state.settings.a11y !== false;
+  $("set-speed").checked = state.settings.speed !== false;
   $("set-status").textContent = "";
 }
 
@@ -896,7 +1083,7 @@ async function saveSettings() {
     $("set-status").textContent = 'That does not look like an Anthropic API key (it should start with "sk-ant-").';
     return;
   }
-  state.settings = { apiKey: key, model: $("set-model").value, effort: $("set-effort").value, a11y: $("set-a11y").checked };
+  state.settings = { apiKey: key, model: $("set-model").value, effort: $("set-effort").value, a11y: $("set-a11y").checked, speed: $("set-speed").checked };
   await chrome.storage.local.set({ settings: state.settings });
   $("set-status").textContent = "Saved.";
   setTimeout(closeSettings, 500);
@@ -915,6 +1102,34 @@ function typedUrl() {
   }
 }
 
+for (const b of document.querySelectorAll("#mainnav button")) {
+  b.onclick = async () => {
+    if (state.crawlAbort) return flash("A crawl is running. Stop it first.");
+    state.settingsOpen = false;
+    const go = b.dataset.go;
+    if (go === "comp") return showComp();
+    if (go === "vis") return showVis();
+    const tab = await currentTab();
+    if (go === "page") {
+      if (state.page?.result && (!state.page.live || state.page.url === tab?.url)) return renderPage();
+      if (scannable(tab?.url)) return scanPage({ reason: "open" });
+      return showHome();
+    }
+    if (go === "site") {
+      if (state.site) return renderSite();
+      if (scannable(tab?.url)) {
+        const key = siteKey(new URL(tab.url).origin);
+        const saved = (await chrome.storage.local.get(key))[key];
+        if (saved) {
+          state.site = saved;
+          return renderSite();
+        }
+      }
+      showHome();
+      flash("Click “Crawl this site” to score every page.");
+    }
+  };
+}
 $("btn-home").onclick = () => !state.crawlAbort && showHome();
 $("btn-close").onclick = () => {
   if (state.crawlAbort) state.crawlAbort.abort();

@@ -36,18 +36,23 @@
       <button role="menuitem" data-format="vis-html" class="vis-only">Visibility report (HTML)</button>
       <button role="menuitem" data-format="vis-csv" class="vis-only">Prompt results (CSV)</button>
     </div>
+    <nav id="mainnav" class="mainnav" aria-label="Tools">
+      <button data-go="page" title="Score the page in this tab">Page</button>
+      <button data-go="site" title="Crawl and score the whole site">Site</button>
+      <button data-go="comp" title="See who ranks above you in AI answers and why">Competitors</button>
+      <button data-go="vis" title="Track your brand in AI answers">AI visibility</button>
+    </nav>
   </header>
 
   <!-- start screen -->
   <main id="view-home" hidden>
-    <h2>Scan a page or a whole site</h2>
-    <div class="card">
-      <div class="muted small">Current tab</div>
-      <div id="home-current" class="home-url"></div>
-      <div class="row">
-        <button id="btn-scan-tab" class="primary">Scan this page</button>
-        <button id="btn-crawl-tab">Crawl this site</button>
-      </div>
+    <div class="muted small">Current tab</div>
+    <div id="home-current" class="home-url"></div>
+    <div class="home-tools">
+      <button id="btn-scan-tab" class="primary"><b>Scan this page</b><span>AEO, GEO, schema, speed and accessibility</span></button>
+      <button id="btn-crawl-tab"><b>Crawl this site</b><span>Up to 100 pages, site-wide issues</span></button>
+      <button id="btn-open-comp"><b>Competitors</b><span>Who AI ranks above you, and why</span></button>
+      <button id="btn-open-vis"><b>AI visibility</b><span>Your brand in ChatGPT, Perplexity, Google AI</span></button>
     </div>
     <div class="card">
       <label class="field" for="home-url"><span>Another page or website</span></label>
@@ -66,16 +71,6 @@
       </select>
     </label>
     <p class="muted small">The crawler opens pages one by one in a background tab, so it sees each page the way a browser renders it, and follows your sitemap and internal links. It respects robots.txt and skips login, cart and admin pages.</p>
-    <div class="card">
-      <div><strong>Competitor analysis</strong></div>
-      <p class="muted small">Find the sites AI answers cite for your questions, score them with the same rules, and see why they rank higher than you.</p>
-      <button id="btn-open-comp">Analyze competitors</button>
-    </div>
-    <div class="card vis-entry">
-      <div><strong>AI visibility tracker</strong></div>
-      <p class="muted small">See whether AI answers mention your brand and cite your site for the questions your buyers ask, compared with your competitors.</p>
-      <button id="btn-open-vis">Open tracker</button>
-    </div>
     <h3 class="sub">Recent reports</h3>
     <div id="home-recent" class="recent"></div>
   </main>
@@ -108,9 +103,17 @@
       </div>
     </section>
 
-    <section id="blockers" class="recheck warn" hidden></section>
+    <section id="recheck" class="recheck" role="status" hidden></section>
 
-    <section id="recheck" class="recheck" hidden></section>
+    <section id="blockers" class="blockers" role="alert" hidden></section>
+
+    <section id="glance" class="glance" aria-label="At a glance" hidden></section>
+
+    <section id="top-fixes" class="top-fixes" hidden>
+      <h2>Fix these first</h2>
+      <div id="top-fixes-list"></div>
+    </section>
+
 
     <section id="categories" class="categories" hidden></section>
 
@@ -127,6 +130,7 @@
       <div id="claude-body"></div>
     </section>
 
+    <div id="cat-filter" class="cat-filter" hidden></div>
     <div id="filters" class="filters" hidden role="group" aria-label="Filter issues">
       <button data-area="all" aria-pressed="true">All</button>
       <button data-area="aeo" aria-pressed="false">AEO &amp; GEO</button>
@@ -155,7 +159,7 @@
       <div class="site-scores">
         <div class="tile"><span class="muted small">Avg AEO score</span><b id="site-score">–</b></div>
         <div class="tile"><span class="muted small">Avg accessibility</span><b id="site-a11y">–</b></div>
-        <div class="tile"><span class="muted small">Distinct issues</span><b id="site-issues">–</b></div>
+        <div class="tile"><span class="muted small">Distinct issues</span><b id="site-issues">–</b><span id="site-issues-sub" class="muted small"></span></div>
       </div>
       <div id="site-filters" class="filters" role="group" aria-label="Filter issues">
         <button data-area="all" aria-pressed="true">All</button>
@@ -310,6 +314,7 @@
       </select>
     </label>
     <label class="field inline"><input type="checkbox" id="set-a11y" checked> <span>Run accessibility checks (axe-core, WCAG 2.2 AA)</span></label>
+    <label class="field inline"><input type="checkbox" id="set-speed" checked> <span>Measure Core Web Vitals with Google PageSpeed Insights (sends the page URL to Google)</span></label>
     <div class="row">
       <button id="btn-save" class="primary">Save</button>
       <button id="btn-clear-key">Remove key</button>

@@ -20,12 +20,19 @@ export const SEARCH_BOTS = [
   { token: "OAI-SearchBot", company: "OpenAI", use: "ChatGPT search" },
   { token: "PerplexityBot", company: "Perplexity", use: "Perplexity answers" },
   { token: "Claude-SearchBot", company: "Anthropic", use: "Claude web search" },
+  { token: "Applebot", company: "Apple", use: "Siri, Spotlight and Apple Intelligence answers", minor: true },
+  { token: "DuckAssistBot", company: "DuckDuckGo", use: "DuckAssist answers", minor: true },
 ];
 
 export const TRAINING_BOTS = [
   { token: "GPTBot", company: "OpenAI" },
   { token: "ClaudeBot", company: "Anthropic" },
   { token: "Google-Extended", company: "Google" },
+  { token: "Applebot-Extended", company: "Apple" },
+  { token: "CCBot", company: "Common Crawl" },
+  { token: "Bytespider", company: "ByteDance" },
+  { token: "Amazonbot", company: "Amazon" },
+  { token: "Meta-ExternalAgent", company: "Meta" },
 ];
 
 // ---------------------------------------------------------------------------
@@ -218,18 +225,18 @@ export function scorePage(snap, site = {}) {
       add({
         id: `robots-allow-${bot.token.toLowerCase()}`,
         category: "access",
-        severity: bot.token === "Googlebot" || bot.token === "Bingbot" ? "critical" : "major",
+        severity: bot.token === "Googlebot" || bot.token === "Bingbot" ? "critical" : bot.minor ? "minor" : "major",
         title: `robots.txt allows ${bot.token}`,
         pass: v.allowed,
         detail: v.allowed
           ? `Allowed (${bot.use}).`
-          : `Blocked by "${v.rule}" in the ${v.matchedAgent === "*" ? "User-agent: *" : `User-agent: ${bot.token}`} group. ${bot.company}'s ${bot.use} cannot fetch this page.`,
+          : `Blocked by "${v.rule}" in the ${v.matchedAgent === "*" ? "User-agent: *" : `User-agent: ${bot.token}`} group. ${bot.use} cannot fetch this page.`,
         fix: `Add "User-agent: ${bot.token}\\nAllow: /" to robots.txt, and check that your CDN or WAF bot protection does not block it (guide §6.1).`,
         evidence: "Documented",
         section: "6.1",
       });
     }
-    const aiBots = SEARCH_BOTS.filter((b) => !["Googlebot", "Bingbot"].includes(b.token));
+    const aiBots = SEARCH_BOTS.filter((b) => !["Googlebot", "Bingbot"].includes(b.token) && !b.minor);
     const allAiBlocked = aiBots.every((b) => !robotsVerdict(parsed, b.token, pathname).allowed);
     if (allAiBlocked) {
       add({
@@ -327,6 +334,24 @@ export function scorePage(snap, site = {}) {
     fix: "Optional. A Markdown list of your most useful pages can help coding agents and doc tools (guide §6.6).",
     section: "6.6",
   });
+  if (site.llmsTxt === true && typeof site.llmsText === "string") {
+    const t = site.llmsText;
+    const miss = [];
+    if (!/^#\s+\S/m.test(t)) miss.push("an H1 title (# Site name)");
+    if (!/^>\s+\S/m.test(t)) miss.push("a one-line summary (> …)");
+    if ((t.match(/\[[^\]]+\]\(https?:\/\/[^)]+\)/g) || []).length < 3) miss.push("at least 3 Markdown links to key pages");
+    add({
+      id: "llms-txt-format",
+      category: "access",
+      severity: "minor",
+      title: "/llms.txt follows the llms.txt format",
+      pass: miss.length === 0,
+      detail: miss.length ? `Missing ${miss.join(", ")}.` : "Has a title, a summary and links to key pages.",
+      fix: "Start with '# Site name', then '> One-line summary', then '## Sections' of '- [Page](https://…): what it covers' links (llmstxt.org).",
+      evidence: "Practice",
+      section: "6.6",
+    });
+  }
 
   // ---------------- head & meta ----------------
   add({
@@ -468,6 +493,16 @@ export function scorePage(snap, site = {}) {
     fix: 'Add <meta property="og:image" content="https://…/preview.png"> (1200×630). Many assistants show it next to citations.',
     evidence: "Practice",
     section: "5.2",
+  });
+  add({
+    id: "twitter-card",
+    category: "head",
+    severity: "minor",
+    title: "Twitter/X card tags",
+    pass: !!snap.twitterCard,
+    detail: snap.twitterCard ? `twitter:card = ${snap.twitterCard}` : "No twitter:card meta tag.",
+    fix: 'Add <meta name="twitter:card" content="summary_large_image">. X, Slack and some assistants use it for link previews.',
+    evidence: "Practice",
   });
   if (snap.metaDescription && snap.title && snap.metaDescription.trim().toLowerCase() === snap.title.trim().toLowerCase()) {
     add({
@@ -1163,6 +1198,16 @@ export function scorePage(snap, site = {}) {
       fix: "Optional trust signal: publish a security.txt with a Contact line.",
       section: null,
     });
+    add({
+      id: "humans-txt",
+      category: "tech",
+      severity: "info",
+      title: "humans.txt",
+      pass: true,
+      detail: t.humansTxt ? "/humans.txt found." : "No /humans.txt.",
+      fix: "Optional: a /humans.txt naming the team behind the site.",
+      section: null,
+    });
     const e = t.email;
     if (e && !e.skipped && !e.error && e.mx > 0) {
       add({
@@ -1378,6 +1423,48 @@ export function scorePage(snap, site = {}) {
       evidence: "Documented",
       section: "5.3",
     });
+  }
+
+  // ---------------- brand consistency ----------------
+  {
+    const orgNode = ldNodes.find((n) => typesOf(n).some((t) => /Organization|Corporation|LocalBusiness/.test(t)) && n.name);
+    const brand = String(orgNode?.name || snap.og?.siteName || "").trim();
+    if (brand) {
+      const norm = (x) => String(x || "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
+      const b = norm(brand);
+      const places = { "page title": snap.title, "og:site_name": snap.og?.siteName, "Organization schema": orgNode?.name };
+      const missing = Object.entries(places).filter(([, v]) => !v || !norm(v).includes(b)).map(([k]) => k);
+      add({
+        id: "brand-consistency",
+        category: "schema",
+        severity: "minor",
+        title: "Brand name is the same in title, og:site_name and schema",
+        pass: missing.length === 0,
+        detail: missing.length ? `"${brand}" is missing or spelled differently in: ${missing.join(", ")}.` : `"${brand}" appears consistently.`,
+        fix: "Use one exact brand name everywhere: the title suffix, og:site_name and the Organization name. AI engines match entities by name.",
+        evidence: "Practice",
+      });
+    }
+  }
+
+  // ---------------- speed (PageSpeed Insights, when measured) ----------------
+  const psi = site.psi;
+  if (psi && !psi.error) {
+    const m = psi.metrics;
+    const src = psi.field ? "real-user data (CrUX)" : "lab test";
+    const cwv = [
+      { id: "cwv-lcp", key: "lcp", title: "Largest Contentful Paint ≤ 2.5 s", limit: 2500, fmt: (v) => `${(v / 1000).toFixed(1)} s`, sev: "major", fix: "Serve the main image or text block early: preload the LCP image, compress it (AVIF/WebP), cut render-blocking CSS and JS, and cache HTML at the edge." },
+      { id: "cwv-inp", key: "inp", title: psi.field ? "Interaction to Next Paint ≤ 200 ms" : "Total Blocking Time ≤ 200 ms (lab stand-in for INP)", limit: 200, fmt: (v) => `${Math.round(v)} ms`, sev: "minor", fix: "Break up long JavaScript tasks, defer third-party scripts and hydrate less on load." },
+      { id: "cwv-cls", key: "cls", title: "Cumulative Layout Shift ≤ 0.1", limit: 0.1, fmt: (v) => v.toFixed(2), sev: "minor", fix: "Set width and height on images, embeds and ads, and reserve space for banners and late-loading fonts." },
+    ];
+    for (const c of cwv) {
+      const v = m[c.key];
+      if (v == null) continue;
+      add({ id: c.id, category: "tech", severity: c.sev, title: c.title, pass: v <= c.limit, detail: `${c.fmt(v)} on mobile, from ${src}.`, fix: c.fix, evidence: "Documented" });
+    }
+    if (psi.performance != null) {
+      add({ id: "psi-performance", category: "tech", severity: "info", title: "PageSpeed performance score (mobile)", pass: true, detail: `${psi.performance}/100 in the PageSpeed Insights lab test.`, fix: "Open PageSpeed Insights for the full list of opportunities." });
+    }
   }
 
   return summarize(checks);
